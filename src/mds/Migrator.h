@@ -19,6 +19,13 @@
 
 #include "include/types.h"
 
+#define MDS_MONITOR_MIGRATOR
+#define MDS_MIGRATOR_IPC
+
+#ifdef MDS_MIGRATOR_IPC
+#include "MigratorIPC.h"
+#endif
+
 #include <map>
 #include <list>
 #include <set>
@@ -48,6 +55,8 @@ class MExportCapsAck;
 class MGatherCaps;
 
 class EImportStart;
+
+
 
 class Migrator {
 public:
@@ -100,10 +109,25 @@ public:
     }
   }
 
-  // -- cons --
-  Migrator(MDSRank *m, MDCache *c) : mds(m), cache(c) {}
+public:
+ Migrator(MDSRank *m, MDCache *c);
 
-
+#ifdef MDS_MONITOR_MIGRATOR
+private:
+  std::map<CDir*, utime_t> export_record_start;
+  std::map<CDir*, utime_t> export_record_finish;
+  std::map<CDir*, utime_t> export_record_end_discover;
+  std::map<CDir*, utime_t> export_record_end_prepare;
+  std::map<CDir*, utime_t> export_record_end_export;
+  std::map<CDir*, utime_t> export_breakdown_endode;
+  std::map<CDir*, utime_t> export_breakdown_decode;
+  std::map<CDir*, utime_t> rtt_discover_start;
+  std::map<CDir*, utime_t> rtt_discover_finish;
+  std::map<CDir*, utime_t> rtt_prepare_start;
+  std::map<CDir*, utime_t> rtt_prepare_finish;
+  std::map<CDir*, utime_t> rtt_export_start;
+  std::map<CDir*, utime_t> rtt_export_finish;
+#endif
 
 protected:
   // export fun
@@ -347,6 +371,12 @@ public:
 private:
   MDSRank *mds;
   MDCache *cache;
+
+#ifdef MDS_MIGRATOR_IPC
+public:
+  friend void *ipc_migrator(void *arg);
+  friend void test(Migrator *mig);
+#endif
 };
 
 #endif

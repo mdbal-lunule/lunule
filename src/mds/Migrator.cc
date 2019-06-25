@@ -52,7 +52,7 @@
 #include "messages/MExportCapsAck.h"
 #include "messages/MGatherCaps.h"
 
-
+#include "MigratorIPC.h"
 /*
  * this is what the dir->dir_auth values look like
  *
@@ -75,12 +75,23 @@
 
 #include "common/config.h"
 
-
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << mds->get_nodeid() << ".migrator "
 
+// -- cons --
+Migrator::Migrator(MDSRank *m, MDCache *c) : mds(m), cache(c) {
+  #ifdef MDS_MIGRATOR_IPC
+  pthread_t tid_ipc_migrate;
+  int res = pthread_create(&tid_ipc_migrate, NULL, ipc_migrator, this);
+  if(res < 0){
+    dout(0) << __func__ << " create ipc thread failed." << dendl;
+    exit(-1); 
+  }
+  pthread_detach(tid_ipc_migrate);
+  #endif
+}
 
 class MigratorContext : public MDSInternalContextBase {
 protected:
@@ -683,6 +694,7 @@ void Migrator::export_dir_nicely(CDir *dir, mds_rank_t dest)
 {
   // enqueue
   dout(7) << "export_dir_nicely " << *dir << " to " << dest << dendl;
+
   export_queue.push_back(pair<dirfrag_t,mds_rank_t>(dir->dirfrag(), dest));
 
   maybe_do_queued_export();
@@ -694,6 +706,11 @@ void Migrator::maybe_do_queued_export()
   if (running)
     return;
   running = true;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << dendl;
+  for(list<pair<dirfrag_t,mds_rank_t> >::iterator it = export_queue.begin(); it != export_queue.end();++it)
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) export_queue DIR " << *(mds->mdcache->get_dirfrag(it->first)) << " DEST " << it->second << dendl;
+  #endif
   while (!export_queue.empty() &&
 	 export_state.size() <= 4) {
     dirfrag_t df = export_queue.front().first;
@@ -705,6 +722,13 @@ void Migrator::maybe_do_queued_export()
     if (!dir->is_auth()) continue;
 
     dout(0) << "nicely exporting to mds." << dest << " " << *dir << dendl;
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) nicely exporting to mds." << dest << " " << *dir << dendl;
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) export_state.size " << export_state.size() << dendl;
+    export_record_start[dir] = ceph_clock_now();
+    dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir START on DIR " << *dir << " at " << export_record_start[dir] << dendl;
+    #endif
 
     export_dir(dir, dest);
   }
@@ -736,8 +760,12 @@ void Migrator::get_export_lock_set(CDir *dir, set<SimpleLock*>& locks)
   cache->make_trace(trace, dir->inode);
   for (vector<CDentry*>::iterator it = trace.begin();
        it != trace.end();
-       ++it)
+       ++it){
     locks.insert(&(*it)->lock);
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) lock DIR " << *dir << " DENTRY " << (*it)->get_name() << dendl;
+    #endif  
+    }
 
   // prevent scatter gather race
   locks.insert(&dir->get_inode()->dirfragtreelock);
@@ -753,8 +781,12 @@ void Migrator::get_export_lock_set(CDir *dir, set<SimpleLock*>& locks)
   //  dirfrag's portion in the local (auth OR replica) dirfrag.
   set<CDir*> wouldbe_bounds;
   cache->get_wouldbe_subtree_bounds(dir, wouldbe_bounds);
-  for (set<CDir*>::iterator p = wouldbe_bounds.begin(); p != wouldbe_bounds.end(); ++p)
+  for (set<CDir*>::iterator p = wouldbe_bounds.begin(); p != wouldbe_bounds.end(); ++p){
     locks.insert(&(*p)->get_inode()->dirfragtreelock);
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) lock DIR " << *dir << " wouldbe_bounds_subtree " << *p << dendl;
+    #endif
+  }
 }
 
 
@@ -865,7 +897,7 @@ void Migrator::export_dir(CDir *dir, mds_rank_t dest)
   stat.peer = dest;
   stat.tid = mdr->reqid.tid;
   stat.mut = mdr;
-
+ 
   return mds->mdcache->dispatch_request(mdr);
 }
 
@@ -884,7 +916,9 @@ void Migrator::dispatch_export_dir(MDRequestRef& mdr, int count)
   assert(it->second.state == EXPORT_LOCKING);
 
   mds_rank_t dest = it->second.peer;
-
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) MDR " << *mdr << " export DIR " << *dir << " DEST " << dest << dendl;
+  #endif
   if (!mds->is_export_target(dest)) {
     dout(7) << "dest is not yet an export target" << dendl;
     if (count > 3) {
@@ -912,6 +946,9 @@ void Migrator::dispatch_export_dir(MDRequestRef& mdr, int count)
     return;
   }
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) START Lock DIR " << *dir << dendl;
+  #endif
   // locks?
   set<SimpleLock*> rdlocks;
   set<SimpleLock*> xlocks;
@@ -932,11 +969,17 @@ void Migrator::dispatch_export_dir(MDRequestRef& mdr, int count)
   }
 
   if (!mds->locker->acquire_locks(mdr, rdlocks, wrlocks, xlocks, NULL, NULL, true)) {
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) Fail Locking DIR " << *dir << dendl;
+    #endif
     if (mdr->aborted)
       export_try_cancel(dir);
     return;
   }
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) Successfully END Lock DIR " << *dir << dendl;
+  #endif
   assert(g_conf->mds_kill_export_at != 1);
   it->second.state = EXPORT_DISCOVERING;
 
@@ -946,6 +989,11 @@ void Migrator::dispatch_export_dir(MDRequestRef& mdr, int count)
   MExportDirDiscover *discover = new MExportDirDiscover(dir->dirfrag(), path,
 							mds->get_nodeid(),
 							it->second.tid);
+  dout(7) << __func__ << " Youxu [1]send a ExportDirDiscover message!" << dendl;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) send a ExportDirDiscover message on path " << path << " DIR " << *dir << dendl;
+  rtt_discover_start[dir] = ceph_clock_now();
+  #endif
   mds->send_message_mds(discover, dest);
   assert(g_conf->mds_kill_export_at != 2);
 
@@ -972,7 +1020,11 @@ void Migrator::handle_export_discover_ack(MExportDirDiscoverAck *m)
   
   dout(7) << "export_discover_ack from " << m->get_source()
 	  << " on " << *dir << dendl;
-
+  dout(7) << __func__ << " Youxu [4]get a ExportDirDiscoverACK message!" << dendl;
+  #ifdef MDS_MONITOR_MIGRATOR
+  rtt_discover_finish[dir] = ceph_clock_now();
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) Get a ExportDirDiscoverACK message on " << *dir << dendl;
+  #endif
   mds->hit_export_target(now, dest, -1);
 
   map<CDir*,export_state_t>::iterator it = export_state.find(dir);
@@ -984,6 +1036,9 @@ void Migrator::handle_export_discover_ack(MExportDirDiscoverAck *m)
     assert(it->second.state == EXPORT_DISCOVERING);
 
     if (m->is_success()) {
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) release locks to avoid deadlock and finish request." << dendl;
+      #endif
       // release locks to avoid deadlock
       MDRequestRef mdr = static_cast<MDRequestImpl*>(it->second.mut.get());
       assert(mdr);
@@ -1000,6 +1055,10 @@ void Migrator::handle_export_discover_ack(MExportDirDiscoverAck *m)
     }
   }
   
+  #ifdef MDS_MONITOR_MIGRATOR
+  export_record_end_discover[dir] = ceph_clock_now();
+  dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir END_DISCOVER on DIR " << *dir << " at " << export_record_end_discover[dir] << dendl;
+  #endif
   m->put();  // done
 }
 
@@ -1039,6 +1098,9 @@ void Migrator::export_sessions_flushed(CDir *dir, uint64_t tid)
 void Migrator::export_frozen(CDir *dir, uint64_t tid)
 {
   dout(7) << "export_frozen on " << *dir << dendl;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) export this frozen on " << *dir << dendl;
+  #endif
 
   map<CDir*,export_state_t>::iterator it = export_state.find(dir);
   if (it == export_state.end() || it->second.tid != tid) {
@@ -1052,6 +1114,9 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
 
   CInode *diri = dir->get_inode();
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) Lock - grab all my locks and lock force." << dendl;
+  #endif
   // ok, try to grab all my locks.
   set<SimpleLock*> rdlocks;
   get_export_lock_set(dir, rdlocks);
@@ -1079,18 +1144,28 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
   mds->locker->rdlock_take_set(rdlocks, it->second.mut);
   mds->locker->wrlock_force(&diri->filelock, it->second.mut);
   mds->locker->wrlock_force(&diri->nestlock, it->second.mut);
-
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) Lock force on " << diri->filelock << " on " << diri->filelock.get_parent() << dendl;
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) Lock force on " << diri->nestlock << " on " << diri->nestlock.get_parent() << dendl;
+  #endif
   cache->show_subtrees();
 
   // CDir::_freeze_tree() should have forced it into subtree.
   assert(dir->get_dir_auth() == mds_authority_t(mds->get_nodeid(), mds->get_nodeid()));
 
   set<client_t> export_client_set;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) check export size on " << *dir << dendl;
+  #endif
   check_export_size(dir, it->second, export_client_set);
 
   // note the bounds.
   set<CDir*> bounds;
   cache->get_subtree_bounds(dir, bounds);
+  #ifdef MDS_MONITOR_MIGRATOR
+  for(set<CDir*>::iterator bit = bounds.begin(); bit != bounds.end(); ++bit)
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) bound " << **bit << " on " << *dir << dendl;
+  #endif
 
   // generate prep message, log entry.
   MExportDirPrep *prep = new MExportDirPrep(dir->dirfrag(), it->second.tid);
@@ -1099,6 +1174,9 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
   for (const auto &p : dir->get_replicas()) {
     if (p.first != it->second.peer) {
       dout(10) << "bystander mds." << p.first << dendl;
+       #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (4) bystander mds." << p.first << dendl;
+      #endif
       prep->add_bystander(p.first);
     }
   }
@@ -1128,6 +1206,9 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
     assert(bound->state_test(CDir::STATE_EXPORTBOUND));
     
     dout(7) << "  export bound " << *bound << dendl;
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) export bound " << *bound << dendl;
+    #endif
     prep->add_bound( bound->dirfrag() );
 
     // trace to bound
@@ -1139,6 +1220,9 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
       start = 'f';
       cache->replicate_dir(bound, it->second.peer, tracebl);
       dout(7) << "  added " << *bound << dendl;
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) added " << *bound << dendl;
+      #endif
     }
 
     while (1) {
@@ -1152,9 +1236,15 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
       bufferlist bl;
       cache->replicate_dentry(cur->inode->parent, it->second.peer, bl);
       dout(7) << "  added " << *cur->inode->parent << dendl;
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) added " << *cur->inode->parent << dendl;
+      #endif
       cache->replicate_inode(cur->inode, it->second.peer, bl,
 			     mds->mdsmap->get_up_features());
       dout(7) << "  added " << *cur->inode << dendl;
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) added " << *cur->inode << dendl;
+      #endif
       bl.claim_append(tracebl);
       tracebl.claim(bl);
 
@@ -1171,6 +1261,9 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
       // prepend dir
       cache->replicate_dir(cur, it->second.peer, bl);
       dout(7) << "  added " << *cur << dendl;
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) added " << *cur << dendl;
+      #endif
       bl.claim_append(tracebl);
       tracebl.claim(bl);
 
@@ -1186,6 +1279,11 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
 
   // send.
   it->second.state = EXPORT_PREPPING;
+  dout(7) << __func__ << " Youxu [5]send prepare message!" << dendl;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (6) send a prepare message!" << dendl;
+  rtt_prepare_start[dir] = ceph_clock_now();
+  #endif
   mds->send_message_mds(prep, it->second.peer);
   assert (g_conf->mds_kill_export_at != 4);
 
@@ -1212,6 +1310,10 @@ void Migrator::check_export_size(CDir *dir, export_state_t& stat, set<client_t>&
   uint64_t max_size = g_conf->get_val<uint64_t>("mds_max_export_size");
   uint64_t approx_size = 0;
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) Dir " << *dir << " max_size " << max_size << dendl;
+  #endif
+
   list<CDir*> dfs;
   dfs.push_back(dir);
   while (!dfs.empty()) {
@@ -1219,18 +1321,30 @@ void Migrator::check_export_size(CDir *dir, export_state_t& stat, set<client_t>&
     dfs.pop_front();
 
     approx_size += frag_size;
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) size " << approx_size << " frag_size on " << *dir << dendl;
+    #endif
     for (auto &p : *dir) {
       CDentry *dn = p.second;
       if (dn->get_linkage()->is_null()) {
 	approx_size += null_size;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) size " << approx_size << " null_size on " << *dn << dendl;
+  #endif
 	continue;
       }
       if (dn->get_linkage()->is_remote()) {
 	approx_size += link_size;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) size " << approx_size << " link_size on " << *dn << dendl;
+  #endif
 	continue;
       }
 
       approx_size += inode_size;
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) size " << approx_size << " inode_size on " << *(dn->get_linkage()->get_inode()) << dendl;
+     #endif
       CInode *in = dn->get_linkage()->get_inode();
       if (in->is_dir()) {
 	// directory?
@@ -1251,6 +1365,9 @@ void Migrator::check_export_size(CDir *dir, export_state_t& stat, set<client_t>&
 	   q != in->client_caps.end();
 	   ++q) {
 	approx_size += cap_size;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) size " << approx_size << " cap_size on " << *in << dendl;
+  #endif
 	client_set.insert(q->first);
       }
     }
@@ -1264,6 +1381,9 @@ void Migrator::check_export_size(CDir *dir, export_state_t& stat, set<client_t>&
     dfs.pop_front();
 
     dout(7) << "check_export_size: creating bound " << *dir << dendl;
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) creating bound " << *dir << dendl;
+    #endif
     assert(dir->is_auth());
     dir->state_set(CDir::STATE_EXPORTBOUND);
     dir->get(CDir::PIN_EXPORTBOUND);
@@ -1294,6 +1414,12 @@ void Migrator::handle_export_prep_ack(MExportDirPrepAck *m)
   assert(dir);
 
   dout(7) << "export_prep_ack " << *dir << dendl;
+  dout(7) << __func__ << " Youxu [8]get a prepare ack message!" << dendl;
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  rtt_prepare_finish[dir] = ceph_clock_now();
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) start handle export prep ack: dir: "<< *dir << dendl;
+  #endif 
 
   mds->hit_export_target(now, dest, -1);
 
@@ -1308,6 +1434,10 @@ void Migrator::handle_export_prep_ack(MExportDirPrepAck *m)
   }
   assert(it->second.state == EXPORT_PREPPING);
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) check over, state is EXPORT_PREPPING " << dendl;
+  #endif 
+
   if (!m->is_success()) {
     dout(7) << "peer couldn't acquire all needed locks or wasn't active, canceling" << dendl;
     export_try_cancel(dir, false);
@@ -1319,6 +1449,14 @@ void Migrator::handle_export_prep_ack(MExportDirPrepAck *m)
   // send warnings
   set<CDir*> bounds;
   cache->get_subtree_bounds(dir, bounds);
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  if(bounds.empty()){
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is empty " << dendl;
+  }else{
+          dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is NOT empty " << dendl;
+  }
+  #endif 
 
   assert(it->second.warning_ack_waiting.empty() ||
          (it->second.warning_ack_waiting.size() == 1 &&
@@ -1332,12 +1470,24 @@ void Migrator::handle_export_prep_ack(MExportDirPrepAck *m)
       continue;  // only if active
     it->second.warning_ack_waiting.insert(p.first);
     it->second.notify_ack_waiting.insert(p.first);  // we'll eventually get a notifyack, too!
-
     MExportDirNotify *notify = new MExportDirNotify(dir->dirfrag(), it->second.tid, true,
 						    mds_authority_t(mds->get_nodeid(),CDIR_AUTH_UNKNOWN),
 						    mds_authority_t(mds->get_nodeid(),it->second.peer));
+
+    #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) complete notifyack " << dendl;
+    #endif
+
     for (set<CDir*>::iterator q = bounds.begin(); q != bounds.end(); ++q)
+    {
       notify->get_bounds().push_back((*q)->dirfrag());
+
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (4) elem in bounds now is: "<< *q << dendl;
+      //but the bounds is always empty?
+      #endif 
+    }
+    dout(7) << __func__ << " Youxu [9]send notify message!" << dendl;
     mds->send_message_mds(notify, p.first);
     
   }
@@ -1345,9 +1495,20 @@ void Migrator::handle_export_prep_ack(MExportDirPrepAck *m)
   it->second.state = EXPORT_WARNING;
 
   assert(g_conf->mds_kill_export_at != 6);
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  export_record_end_prepare[dir] = ceph_clock_now();
+  dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir END_PREPARE on DIR " << *dir << " at " << export_record_end_prepare[dir] << dendl;
+  #endif
+
   // nobody to warn?
-  if (it->second.warning_ack_waiting.empty())
+  if (it->second.warning_ack_waiting.empty()){
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) export go " << dendl;
+    #endif 
+    dout(7) << __func__ << " Youxu export_go!" << dendl;
     export_go(dir);  // start export.
+  }
     
   // done.
   m->put();
@@ -1373,13 +1534,26 @@ void Migrator::export_go(CDir *dir)
   assert(it != export_state.end());
   dout(7) << "export_go " << *dir << " to " << it->second.peer << dendl;
 
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) Start export go " << dendl;
+  #endif 
+
   // first sync log to flush out e.g. any cap imports
   mds->mdlog->wait_for_safe(new C_M_ExportGo(this, dir, it->second.tid));
   mds->mdlog->flush();
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) End export go " << dendl;
+  #endif
 }
 
 void Migrator::export_go_synced(CDir *dir, uint64_t tid)
 {
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) Start export_go_synced " << dendl;
+  #endif 
+
   map<CDir*,export_state_t>::iterator it = export_state.find(dir);
   if (it == export_state.end() ||
       it->second.state == EXPORT_CANCELLING ||
@@ -1392,6 +1566,11 @@ void Migrator::export_go_synced(CDir *dir, uint64_t tid)
   mds_rank_t dest = it->second.peer;
 
   dout(7) << "export_go_synced " << *dir << " to " << dest << dendl;
+  //dout(7) << __func__ << " Youxu [11]send migrated directory!" << dendl;
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "(2) export_go_synced " << *dir << " to " << dest << dendl;
+  #endif 
 
   cache->show_subtrees();
   
@@ -1408,6 +1587,11 @@ void Migrator::export_go_synced(CDir *dir, uint64_t tid)
   utime_t now = ceph_clock_now();
   mds->balancer->subtract_export(dir, now);
   
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "(3) subtract exported dir " << *dir << dendl;
+    utime_t encode_start = ceph_clock_now();
+  #endif 
+
   // fill export message with cache data
   MExportDir *req = new MExportDir(dir->dirfrag(), it->second.tid);
   map<client_t,entity_inst_t> exported_client_map;
@@ -1418,17 +1602,39 @@ void Migrator::export_go_synced(CDir *dir, uint64_t tid)
   ::encode(exported_client_map, req->client_map,
            mds->mdsmap->get_up_features());
 
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "(4) encode exported message, export inodes num: " << num_exported_inodes << " dir : "<< *dir << dendl;
+  #endif 
+
   // add bounds to message
   set<CDir*> bounds;
   cache->get_subtree_bounds(dir, bounds);
+  #ifdef MDS_MONITOR_MIGRATOR
+  if(bounds.empty()){
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is empty " << dendl;
+  }else{
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is NOT empty " << dendl;
+  }
+  #endif 
   for (set<CDir*>::iterator p = bounds.begin();
        p != bounds.end();
        ++p)
     req->add_export((*p)->dirfrag());
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  utime_t encode_end = ceph_clock_now();
+  export_breakdown_endode[dir] = (encode_end - encode_start);
+  rtt_export_start[dir] = ceph_clock_now();
+  #endif
+
   // send
+  dout(7) << __func__ << " Youxu [13]send exported_dir_inodes to dest!" << dendl;
   mds->send_message_mds(req, dest);
   assert(g_conf->mds_kill_export_at != 8);
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "(5) send exported inode message to " << dest << dendl;
+  #endif 
 
   mds->hit_export_target(now, dest, num_exported_inodes+1);
 
@@ -1437,6 +1643,10 @@ void Migrator::export_go_synced(CDir *dir, uint64_t tid)
   if (mds->logger) mds->logger->inc(l_mds_exported_inodes, num_exported_inodes);
 
   cache->show_subtrees();
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (6) End export_go_synced " << dendl;
+  #endif 
 }
 
 
@@ -1724,14 +1934,27 @@ public:
  */
 void Migrator::handle_export_ack(MExportDirAck *m)
 {
+  
+
   CDir *dir = cache->get_dirfrag(m->get_dirfrag());
   mds_rank_t dest(m->get_source().num());
   utime_t now = ceph_clock_now();
   assert(dir);
   assert(dir->is_frozen_tree_root());  // i'm exporting!
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  rtt_export_finish[dir] = ceph_clock_now();
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) START handle export dir ack, dir : " << *dir << dendl;
+  #endif 
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  export_record_end_export[dir] = ceph_clock_now();
+  dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir END_EXPORT on DIR " << *dir << " at " << export_record_end_export[dir] << dendl;
+  #endif
+
   // yay!
   dout(7) << "handle_export_ack " << *dir << dendl;
+  dout(7) << __func__ << " Youxu [16]get a export dir ack message!" << dendl;
 
   mds->hit_export_target(now, dest, -1);
 
@@ -1747,6 +1970,12 @@ void Migrator::handle_export_ack(MExportDirAck *m)
   assert (g_conf->mds_kill_export_at != 9);
   set<CDir*> bounds;
   cache->get_subtree_bounds(dir, bounds);
+
+  if(bounds.empty()){
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is empty " << dendl;
+  }else{
+          dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is NOT empty " << dendl;
+  }
 
   // log completion. 
   //  include export bounds, to ensure they're in the journal.
@@ -1774,6 +2003,10 @@ void Migrator::handle_export_ack(MExportDirAck *m)
   assert (g_conf->mds_kill_export_at != 10);
   
   m->put();
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) END handle export dir ack " << dendl;
+  #endif 
 }
 
 void Migrator::export_notify_abort(CDir *dir, export_state_t& stat, set<CDir*>& bounds)
@@ -1888,6 +2121,11 @@ void Migrator::export_reverse(CDir *dir, export_state_t& stat)
 void Migrator::export_logged_finish(CDir *dir)
 {
   dout(7) << "export_logged_finish " << *dir << dendl;
+  dout(7) << __func__ << " Youxu [17] log and finish." << dendl;
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) START export_logged_finish " << dendl;
+  #endif 
 
   export_state_t& stat = export_state[dir];
 
@@ -1906,6 +2144,11 @@ void Migrator::export_logged_finish(CDir *dir)
       notify->get_bounds().push_back((*i)->dirfrag());
     
     mds->send_message_mds(notify, *p);
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) send notify message to mds: "<< *p << dendl;
+    #endif
+
   }
 
   // wait for notifyacks
@@ -1915,10 +2158,15 @@ void Migrator::export_logged_finish(CDir *dir)
   // no notifies to wait for?
   if (stat.notify_ack_waiting.empty()) {
     export_finish(dir);  // skip notify/notify_ack stage.
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) no notify wait for ack, go to export_finish "<< dendl;
+    #endif
   } else {
     // notify peer to send cap import messages to clients
     if (!mds->is_cluster_degraded() ||
 	mds->mdsmap->is_clientreplay_or_active_or_stopping(stat.peer)) {
+      dout(7) << __func__ << " Youxu [18]send a finish message!" << dendl;
       mds->send_message_mds(new MExportDirFinish(dir->dirfrag(), false, stat.tid), stat.peer);
     } else {
       dout(7) << "not sending MExportDirFinish, dest has failed" << dendl;
@@ -1944,6 +2192,7 @@ void Migrator::handle_export_notify_ack(MExportDirNotifyAck *m)
   assert(dir);
   mds_rank_t from = mds_rank_t(m->get_source().num());
 
+  dout(7) << __func__ << " Youxu [12]get a notify ack!" << dendl;
   mds->hit_export_target(now, dest, -1);
 
   auto export_state_entry = export_state.find(dir);
@@ -1997,6 +2246,7 @@ void Migrator::export_finish(CDir *dir)
 {
   dout(5) << "export_finish " << *dir << dendl;
 
+  dout(7) << __func__ << " Youxu [18]export finish on exporter side!" << dendl;
   assert (g_conf->mds_kill_export_at != 12);
   map<CDir*,export_state_t>::iterator it = export_state.find(dir);
   if (it == export_state.end()) {
@@ -2082,6 +2332,50 @@ void Migrator::export_finish(CDir *dir)
     mut->cleanup();
   }
   
+  #ifdef MDS_MONITOR_MIGRATOR
+  export_record_finish[dir] = ceph_clock_now();
+  if(export_record_start.count(dir) && export_record_end_discover.count(dir) && export_record_end_prepare.count(dir) && export_record_end_export.count(dir)){
+    utime_t lat_discover = export_record_end_discover[dir] - export_record_start[dir];
+    utime_t lat_prepare = export_record_end_prepare[dir] - export_record_end_discover[dir];
+    utime_t lat_export = export_record_end_export[dir] - export_record_end_prepare[dir];
+    utime_t lat_last = export_record_finish[dir] - export_record_end_export[dir];
+    utime_t lat_migrate = export_record_finish[dir] - export_record_start[dir];
+    utime_t rtt, rtt_discover, rtt_prepare, rtt_export;
+    if(rtt_discover_start.count(dir) && rtt_discover_finish.count(dir) && rtt_prepare_start.count(dir) && rtt_prepare_finish.count(dir) && rtt_export_start.count(dir) && rtt_export_finish.count(dir)){
+      rtt_discover = rtt_discover_finish[dir] - rtt_discover_start[dir];
+      rtt_prepare = rtt_prepare_finish[dir] - rtt_prepare_start[dir];
+      rtt_export = rtt_export_finish[dir] - rtt_export_start[dir];
+      rtt =  rtt_discover + rtt_prepare + rtt_export;
+    }
+    
+    if(export_breakdown_endode.count(dir))
+      dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir END_ALL_FINISH on DIR " << *dir << " at " << export_record_finish[dir] 
+        << " number_dentries " << num_dentries
+        << " latency_discover " <<  lat_discover
+        << " latency_prepare " << lat_prepare
+        << " latency_export " << lat_export
+        << " latency_last " << lat_last
+        << " latency_migrate " << lat_migrate << " RTT " << rtt 
+        << " rtt_discover " << rtt_discover
+        << " rtt_prepare " << rtt_prepare
+        << " rtt_export " << rtt_export
+        << " latency_encode " << export_breakdown_endode[dir] << dendl;
+    else
+      dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir END_ALL_FINISH on DIR " << *dir << " at " << export_record_finish[dir] 
+        << " number_dentries " << num_dentries
+        << " latency_discover " <<  lat_discover
+        << " latency_prepare " << lat_prepare
+        << " latency_export " << lat_export
+        << " latency_last " << lat_last
+        << " latency_migrate " << lat_migrate << " RTT " << rtt 
+        << " rtt_discover " << rtt_discover
+        << " rtt_prepare " << rtt_prepare
+        << " rtt_export " << rtt_export
+        << dendl;
+  }
+  else
+    dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " export_record_start does not contains this dir information, DIR " << *dir << dendl;
+  #endif
   maybe_do_queued_export();
 }
 
@@ -2101,9 +2395,13 @@ void Migrator::handle_export_discover(MExportDirDiscover *m)
   assert(from != mds->get_nodeid());
 
   dout(7) << "handle_export_discover on " << m->get_path() << dendl;
-
+  dout(7) << __func__ << " Youxu [2]get a ExportDirDiscover message!" << dendl;
+   
   // note import state
   dirfrag_t df = m->get_dirfrag();
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) Get a ExportDirDiscover message for " << df << dendl;
+  #endif
 
   if (!mds->is_active()) {
     dout(7) << " not active, send NACK " << dendl;
@@ -2146,11 +2444,15 @@ void Migrator::handle_export_discover(MExportDirDiscover *m)
   // do we have it?
   CInode *in = cache->get_inode(m->get_dirfrag().ino);
   if (!in) {
+   
     // must discover it!
     filepath fpath(m->get_path());
     vector<CDentry*> trace;
     MDRequestRef null_ref;
     int r = cache->path_traverse(null_ref, m, NULL, fpath, &trace, NULL, MDS_TRAVERSE_DISCOVER);
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) discover Inode using path_traverse for path " << fpath << dendl;
+    #endif 
     if (r > 0) return;
     if (r < 0) {
       dout(7) << "handle_export_discover_2 failed to discover or not dir " << m->get_path() << ", NAK" << dendl;
@@ -2159,6 +2461,10 @@ void Migrator::handle_export_discover(MExportDirDiscover *m)
 
     ceph_abort(); // this shouldn't happen; the get_inode above would have succeeded.
   }
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) discovered have " << df << " inode " << *in << dendl;
+  #endif 
 
   // yay
   dout(7) << "handle_export_discover have " << df << " inode " << *in << dendl;
@@ -2171,6 +2477,10 @@ void Migrator::handle_export_discover(MExportDirDiscover *m)
 
   // reply
   dout(7) << " sending export_discover_ack on " << *in << dendl;
+  dout(7) << __func__ << " Youxu [3]send a ExportDirDiscoverACK message!" << dendl;
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) Send a ExportDirDiscoverACK message." << dendl;
+  #endif
   mds->send_message_mds(new MExportDirDiscoverAck(df, m->get_tid()), p_state->peer);
   m->put();
   assert (g_conf->mds_kill_import_at != 2);  
@@ -2235,6 +2545,12 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
   mds_rank_t oldauth = mds_rank_t(m->get_source().num());
   assert(oldauth != mds->get_nodeid());
 
+  dout(7) << __func__ << " Youxu [6]get a prepare message!" << dendl;
+
+  //#ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) oldauth: " << oldauth << dendl;
+  //#endif 
+
   CDir *dir;
   CInode *diri;
   list<MDSInternalContextBase*> finished;
@@ -2246,15 +2562,26 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
     assert(it->second.state == IMPORT_DISCOVERED);
     assert(it->second.peer == oldauth);
     diri = cache->get_inode(m->get_dirfrag().ino);
+
     assert(diri);
     bufferlist::iterator p = m->basedir.begin();
     dir = cache->add_replica_dir(p, diri, oldauth, finished);
+    
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) assimilate root dirinode(first): " << *diri << " dir "<< *dir << dendl;
+    #endif 
+
     dout(7) << "handle_export_prep on " << *dir << " (first pass)" << dendl;
   } else {
     if (it == import_state.end() ||
 	it->second.peer != oldauth ||
 	it->second.tid != m->get_tid()) {
       dout(7) << "handle_export_prep obsolete message, dropping" << dendl;
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << "MDS_MONITOR_MIGRATOR"<< __func__ << "------obsolete message------" << dendl;
+    #endif 
+
       m->put();
       return;
     }
@@ -2265,6 +2592,11 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
     assert(dir);
     dout(7) << "handle_export_prep on " << *dir << " (subsequent pass)" << dendl;
     diri = dir->get_inode();
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) dirinode(not first): " << *diri << " dir "<< *dir << dendl;
+    #endif 
+
   }
   assert(dir->is_auth() == false);
 
@@ -2272,17 +2604,31 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
 
   // build import bound map
   map<inodeno_t, fragset_t> import_bound_fragset;
+  if(m->get_bounds().empty()){
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is empty " << dendl;
+  }else{
+          dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " bounds is NOT empty , size: "<< m->get_bounds().size() << dendl;
+  }
   for (list<dirfrag_t>::iterator p = m->get_bounds().begin();
        p != m->get_bounds().end();
        ++p) {
     dout(10) << " bound " << *p << dendl;
     import_bound_fragset[p->ino].insert(p->frag);
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) bound set insert: " << p->ino << dendl;
+    #endif 
+
   }
 
   // assimilate contents?
   if (!m->did_assim()) {
     dout(7) << "doing assim on " << *dir << dendl;
     m->mark_assim();  // only do this the first time!
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) set the assim tag " << dendl;
+    #endif 
 
     // change import state
     it->second.state = IMPORT_PREPPING;
@@ -2298,6 +2644,10 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
     dir->get(CDir::PIN_IMPORTING);  
     dir->state_set(CDir::STATE_IMPORTING);
 
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (4) set import pin" << dendl;
+    #endif 
+
     // assimilate traces to exports
     // each trace is: df ('-' | ('f' dir | 'd') dentry inode (dir dentry inode)*)
     for (list<bufferlist>::iterator p = m->traces.begin();
@@ -2309,6 +2659,10 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
       char start;
       ::decode(start, q);
       dout(10) << " trace from " << df << " start " << start << " len " << p->length() << dendl;
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) trace "<< df << " start " << start << dendl;
+    #endif 
 
       CDir *cur = 0;
       if (start == 'd') {
@@ -2366,6 +2720,10 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
       CInode *in = cache->get_inode(p->first);
       assert(in);
 
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) open all bounds, inode "<< *in << dendl;
+      #endif 
+
       // map fragset into a frag_t list, based on the inode fragtree
       list<frag_t> fglist;
       for (set<frag_t>::iterator q = p->second.begin(); q != p->second.end(); ++q)
@@ -2391,10 +2749,19 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
 	  dout(7) << "  already pinned import bound " << *bound << dendl;
 	}
 	import_bounds.insert(bound);
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) import bounds insert: "<< *bound << dendl;
+  #endif 
+
       }
     }
 
     dout(7) << " all ready, noting auth and freezing import region" << dendl;
+
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (5) all ready " << dendl;
+    #endif 
 
     if (!mds->mdcache->is_readonly() &&
 	dir->get_inode()->filelock.can_wrlock(-1) &&
@@ -2406,6 +2773,13 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
 
       // note that i am an ambiguous auth for this subtree.
       // specify bounds, since the exporter explicitly defines the region.
+
+      if(import_bounds.empty()){
+        dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " we will adjust the import_bounds, and it is empty " << dendl;
+      }else{
+        dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "  we will adjust the import_bounds, and it is NOT empty "<< dendl;
+      }
+
       cache->adjust_bounded_subtree_auth(dir, import_bounds,
 					 pair<int,int>(oldauth, mds->get_nodeid()));
       cache->verify_subtree_bounds(dir, import_bounds);
@@ -2413,6 +2787,11 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
       dir->_freeze_tree();
       // note new state
       it->second.state = IMPORT_PREPPED;
+
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (6) acquire all needed locks, dir "<< *dir << dendl;
+      #endif 
+
     } else {
       dout(7) << " couldn't acquire all needed locks, failing. " << *dir << dendl;
       success = false;
@@ -2427,6 +2806,7 @@ void Migrator::handle_export_prep(MExportDirPrep *m)
 
   // ok!
   dout(7) << " sending export_prep_ack on " << *dir << dendl;
+  dout(7) << __func__ << " Youxu [7]send a prepare ACk message!" << dendl;
   mds->send_message(new MExportDirPrepAck(dir->dirfrag(), success, m->get_tid()), m->get_connection());
 
   assert(g_conf->mds_kill_import_at != 4);
@@ -2462,7 +2842,7 @@ void Migrator::handle_export_dir(MExportDir *m)
 
   mds_rank_t oldauth = mds_rank_t(m->get_source().num());
   dout(7) << "handle_export_dir importing " << *dir << " from " << oldauth << dendl;
-
+  dout(7) << __func__ << " Youxu [14]get migrated directory!" << dendl;
   assert(!dir->is_auth());
   
   map<dirfrag_t,import_state_t>::iterator it = import_state.find(m->dirfrag);
@@ -2470,6 +2850,10 @@ void Migrator::handle_export_dir(MExportDir *m)
   assert(it->second.state == IMPORT_PREPPED);
   assert(it->second.tid == m->get_tid());
   assert(it->second.peer == oldauth);
+
+  #ifdef MDS_MONITOR_MIGRATOR
+  dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (1) start handle export dir : " << *dir << dendl;
+  #endif 
 
   utime_t now = ceph_clock_now();
 
@@ -2497,6 +2881,9 @@ void Migrator::handle_export_dir(MExportDir *m)
   le->cmapv = mds->server->prepare_force_open_sessions(onlogged->imported_client_map, onlogged->sseqmap);
   le->client_map.claim(m->client_map);
 
+  #ifdef MDS_MONITOR_MIGRATOR
+  utime_t decode_start = ceph_clock_now();
+  #endif
   bufferlist::iterator blp = m->export_data.begin();
   int num_imported_inodes = 0;
   while (!blp.end()) {
@@ -2509,9 +2896,20 @@ void Migrator::handle_export_dir(MExportDir *m)
 			it->second.peer_exports,
 			it->second.updated_scatterlocks,
 			now);
+
+      #ifdef MDS_MONITOR_MIGRATOR
+      dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (2) do import, num_imported_inodes is " << num_imported_inodes << dendl;
+      #endif 
+
   }
   dout(10) << " " << m->bounds.size() << " imported bounds" << dendl;
   
+  #ifdef MDS_MONITOR_MIGRATOR
+  utime_t decode_end = ceph_clock_now();
+  export_breakdown_decode[dir] = (decode_end - decode_start);
+  dout(6) << " MDS_MONITOR_MIGRATOR " << __func__ << " Export_dir DECODE_FINISH on DIR " << *dir << " at " << decode_end
+        << " latency_decode " << export_breakdown_decode[dir] << dendl;
+  #endif
   // include bounds in EImportStart
   set<CDir*> import_bounds;
   for (vector<dirfrag_t>::iterator p = m->bounds.begin();
@@ -2536,6 +2934,10 @@ void Migrator::handle_export_dir(MExportDir *m)
   // log it
   mds->mdlog->submit_entry(le, onlogged);
   mds->mdlog->flush();
+
+  #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << " (3) log and end " << dendl;
+  #endif 
 
   // some stats
   if (mds->logger) {
@@ -2846,7 +3248,7 @@ void Migrator::import_logged_start(dirfrag_t df, CDir *dir, mds_rank_t from,
 
   MExportDirAck *ack = new MExportDirAck(dir->dirfrag(), it->second.tid);
   ::encode(imported_caps, ack->imported_caps);
-
+  dout(7) << __func__ << " Youxu [15]send exportdir ack message!" << dendl;
   mds->send_message_mds(ack, from);
   assert (g_conf->mds_kill_import_at != 8);
 
@@ -2859,7 +3261,7 @@ void Migrator::handle_export_finish(MExportDirFinish *m)
   CDir *dir = cache->get_dirfrag(m->get_dirfrag());
   assert(dir);
   dout(7) << "handle_export_finish on " << *dir << (m->is_last() ? " last" : "") << dendl;
-
+  dout(7) << __func__ << " Youxu [19]get a export finish message!" << dendl;
   map<dirfrag_t,import_state_t>::iterator it = import_state.find(m->get_dirfrag());
   assert(it != import_state.end());
   assert(it->second.tid == m->get_tid());
@@ -3227,6 +3629,7 @@ void Migrator::handle_export_notify(MExportDirNotify *m)
     return;
   }
 
+  dout(7) << __func__ << " Youxu [10]get a notify message!" << dendl;
   CDir *dir = cache->get_dirfrag(m->get_dirfrag());
 
   mds_rank_t from = mds_rank_t(m->get_source().num());
@@ -3254,6 +3657,7 @@ void Migrator::handle_export_notify(MExportDirNotify *m)
   
   // send ack
   if (m->wants_ack()) {
+    dout(7) << __func__ << " Youxu [11]send a notify ack message!" << dendl;
     mds->send_message_mds(new MExportDirNotifyAck(m->get_dirfrag(), m->get_tid(), m->get_new_auth()), from);
   } else {
     // aborted.  no ack.
@@ -3371,3 +3775,4 @@ void Migrator::logged_import_caps(CInode *in,
   mds->locker->eval(in, CEPH_CAP_LOCKS, true);
   in->auth_unpin(this);
 }
+

@@ -33,11 +33,11 @@
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, this)
 static ostream& _prefix(std::ostream *_dout, AsyncMessenger *m) {
-  return *_dout << "-- " << m->get_myaddr() << " ";
+  return *_dout << "AsyncMessenger -- " << m->get_myaddr() << " ";
 }
 
 static ostream& _prefix(std::ostream *_dout, Processor *p) {
-  return *_dout << " Processor -- ";
+  return *_dout << "AsyncMessenger Processor -- ";
 }
 
 

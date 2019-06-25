@@ -39,6 +39,8 @@
 
 #include "MDSRank.h"
 
+#define MDS_MONITOR_MIGRATOR
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
@@ -234,8 +236,14 @@ void MDSRank::hit_export_target(utime_t now, mds_rank_t rank, double amount)
   auto em = export_targets.emplace(std::piecewise_construct, std::forward_as_tuple(rank), std::forward_as_tuple(now, DecayRate(rate)));
   if (em.second) {
     dout(15) << "hit export target (new) " << amount << " @ " << now << dendl;
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "hit export target (new) " << amount << " @ " << now << dendl;
+    #endif
   } else {
     dout(15) << "hit export target " << amount << " @ " << now << dendl;
+    #ifdef MDS_MONITOR_MIGRATOR
+    dout(7) << " MDS_MONITOR_MIGRATOR " << __func__ << "hit export target " << amount << " @ " << now << dendl;
+    #endif
   }
   em.first->second.hit(now, amount);
 }

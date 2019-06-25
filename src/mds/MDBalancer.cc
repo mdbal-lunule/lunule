@@ -39,6 +39,8 @@ using std::vector;
 #include "common/config.h"
 #include "common/errno.h"
 
+#define MDS_MONITOR
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
@@ -58,7 +60,6 @@ using std::vector;
 #define MIN_LOAD    50   //  ??
 #define MIN_REEXPORT 5  // will automatically reexport
 #define MIN_OFFLOAD 10   // point at which i stop trying, close enough
-
 
 /* This function DOES put the passed message before returning */
 int MDBalancer::proc_message(Message *m)
@@ -300,6 +301,14 @@ void MDBalancer::send_heartbeat()
     return;
   }
 
+  #ifdef MDS_MONITOR
+  map<mds_rank_t, mds_load_t>::iterator it = mds_load.begin();
+  while(it != mds_load.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << " (1) before send hearbeat, retain mds_load <" << it->first << "," << it->second << ">" << dendl;
+    it++; 
+  }
+  #endif
+
   if (mds->get_nodeid() == 0) {
     beat_epoch++;
    
@@ -311,7 +320,12 @@ void MDBalancer::send_heartbeat()
   map<mds_rank_t, mds_load_t>::value_type val(mds->get_nodeid(), load);
   mds_load.insert(val);
 
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (2) count my load, MDS." << mds->get_nodeid() << " Load " << load << dendl;
+  #endif
+
   // import_map -- how much do i import from whom
+
   map<mds_rank_t, float> import_map;
   set<CDir*> authsubs;
   mds->mdcache->get_auth_subtrees(authsubs);
@@ -325,23 +339,41 @@ void MDBalancer::send_heartbeat()
     import_map[from] += im->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
   }
   mds_import_map[ mds->get_nodeid() ] = import_map;
-
-
-  dout(5) << "mds." << mds->get_nodeid() << " epoch " << beat_epoch << " load " << load << dendl;
-  for (map<mds_rank_t, float>::iterator it = import_map.begin();
-       it != import_map.end();
-       ++it) {
-    dout(5) << "  import_map from " << it->first << " -> " << it->second << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (3) count imported directory meta_load" << dendl;
+  map<mds_rank_t, float>::iterator it_import = import_map.begin();
+  while(it_import != import_map.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << " (3) from mds " << it_import->first << " meta_load " << it_import->second << dendl;
+    it_import++;
   }
+  #endif
+
+  // dout(5) << "mds." << mds->get_nodeid() << " epoch " << beat_epoch << " load " << load << dendl;
+  // for (map<mds_rank_t, float>::iterator it = import_map.begin();
+  //      it != import_map.end();
+  //      ++it) {
+  //   dout(5) << "  import_map from " << it->first << " -> " << it->second << dendl;
+  // }
 
 
   set<mds_rank_t> up;
   mds->get_mds_map()->get_up_mds_set(up);
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (4) collect up mds" << dendl;
+  set<mds_rank_t>::iterator it_up = up.begin();
+  while( it_up != up.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << " (4) up mds." << *it_up << dendl;
+    it_up++;
+  } 
+  #endif
   for (set<mds_rank_t>::iterator p = up.begin(); p != up.end(); ++p) {
     if (*p == mds->get_nodeid())
       continue;
     MHeartbeat *hb = new MHeartbeat(load, beat_epoch);
     hb->get_import_map() = import_map;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (5) send heartbeat to mds." << *p << dendl;
+    #endif
     messenger->send_message(hb,
                             mds->mdsmap->get_inst(*p));
   }
@@ -354,6 +386,9 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
 
   mds_rank_t who = mds_rank_t(m->get_source().num());
   dout(25) << "=== got heartbeat " << m->get_beat() << " from " << m->get_source().num() << " " << m->get_load() << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (1) get heartbeat " << m->get_beat() << " from " << who << " load " << m->get_load() << dendl;
+  #endif
 
   if (!mds->is_active())
     goto out;
@@ -401,6 +436,9 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
   {
     unsigned cluster_size = mds->get_mds_map()->get_num_in_mds();
     if (mds_load.size() == cluster_size) {
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (2) receive all mds heartbeats, now start balance" << dendl;
+      #endif
       // let's go!
       //export_empties();  // no!
 
@@ -414,6 +452,9 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
       }
       prep_rebalance(m->get_beat());
     }
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (2) waiting other heartbeats..." << dendl;
+    #endif
   }
 
   // done
@@ -444,6 +485,9 @@ void MDBalancer::export_empties()
 double MDBalancer::try_match(balance_state_t& state, mds_rank_t ex, double& maxex,
                              mds_rank_t im, double& maxim)
 {
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " Try Match BEGIN " << dendl;
+  #endif
   if (maxex <= 0 || maxim <= 0) return 0.0;
 
   double howmuch = MIN(maxex, maxim);
@@ -456,10 +500,14 @@ double MDBalancer::try_match(balance_state_t& state, mds_rank_t ex, double& maxe
 
   state.exported[ex] += howmuch;
   state.imported[im] += howmuch;
-
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (1) howmuch matched : "<< howmuch << dendl;
+  #endif
   maxex -= howmuch;
   maxim -= howmuch;
-
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " Try Match END " << dendl;
+  #endif
   return howmuch;
 }
 
@@ -613,10 +661,16 @@ void MDBalancer::prep_rebalance(int beat)
 	      << " <- " << m->second.auth << " " << metald
 	      << " / " << mdsld
 	      << dendl;
+        #ifdef MDS_MONITOR
+        dout(7) << " MDS_MONITOR " << __func__ << " (1) calculate my load factor meta_load " << metald << " mds_load " << mdsld << " load_factor " << load_fac << dendl;
+        #endif
     }
 
     double total_load = 0.0;
     multimap<double,mds_rank_t> load_map;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (2) compute mds cluter load" << dendl;
+    #endif
     for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
       map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now()));
       std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
@@ -624,7 +678,9 @@ void MDBalancer::prep_rebalance(int beat)
 
       double l = load.mds_load() * load_fac;
       mds_meta_load[i] = l;
-
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (2) mds." << i << " load " << l << dendl;
+      #endif
       if (whoami == 0)
 	dout(5) << "  mds." << i
 		<< " " << load
@@ -643,10 +699,16 @@ void MDBalancer::prep_rebalance(int beat)
 	    << "   target " << target_load
 	    << "   total " << total_load
 	    << dendl;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (3) total_load " << total_load << " cluster_size " << cluster_size << " target_load " << target_load << dendl;
+    #endif
 
     // under or over?
     if (my_load < target_load * (1.0 + g_conf->mds_bal_min_rebalance)) {
       dout(5) << "  i am underloaded or barely overloaded, doing nothing." << dendl;
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (3) my_load is small, so doing nothing (" << my_load << " < " << target_load << " * " <<g_conf->mds_bal_min_rebalance << ")" << dendl;
+      #endif
       last_epoch_under = beat_epoch;
       mds->mdcache->show_subtrees();
       return;
@@ -659,6 +721,10 @@ void MDBalancer::prep_rebalance(int beat)
     }
 
     dout(5) << "  i am sufficiently overloaded" << dendl;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (4) I am overloaded!!! Now need to migrate." << dendl;
+    dout(7) << " MDS_MONITOR " << __func__ << " (4) decide importer and exporter!" << dendl;
+    #endif
 
 
     // first separate exporters and importers
@@ -672,10 +738,16 @@ void MDBalancer::prep_rebalance(int beat)
 	 ++it) {
       if (it->first < target_load) {
 	dout(15) << "   mds." << it->second << " is importer" << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (4) importer - mds." << it->second << " load " << it->first << " < " << target_load << "(target_load)" <<dendl;
+  #endif
 	importers.insert(pair<double,mds_rank_t>(it->first,it->second));
 	importer_set.insert(it->second);
       } else {
 	dout(15) << "   mds." << it->second << " is exporter" << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (4) exporter - mds." << it->second << " load " << it->first << " >= " << target_load << "(target_load)" <<dendl;
+  #endif
 	exporters.insert(pair<double,mds_rank_t>(it->first,it->second));
 	exporter_set.insert(it->second);
       }
@@ -686,14 +758,41 @@ void MDBalancer::prep_rebalance(int beat)
 
     if (true) {
       // analyze import_map; do any matches i can
-
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (5) determine load transfer mapping " << dendl;
+      dout(7) << " MDS_MONITOR " << __func__ << " ----------------------------------- " << dendl;
+      dout(7) << " MDS_MONITOR " << __func__ << " (5) before determination, state elements " << dendl;
+      map<mds_rank_t, double>::iterator it_target = state.targets.begin();
+      while(it_target != state.targets.end()){
+        dout(7) << " MDS_MONITOR " << __func__ << "(5) targets mds." << it_target->first << " load " << it_target->second << dendl;
+        it_target++;
+      }
+      map<mds_rank_t, double>::iterator it_import = state.imported.begin();
+      while(it_import != state.imported.end()){
+        dout(7) << " MDS_MONITOR " << __func__ << "(5) imported mds." << it_import->first << " load " << it_import->second << dendl;
+        it_import++;
+      }
+      map<mds_rank_t, double>::iterator it_export = state.exported.begin();
+      while(it_export != state.exported.end()){
+        dout(7) << " MDS_MONITOR " << __func__ << "(5) exported mds." << it_export->first << " load " << it_export->second << dendl;
+        it_export++;
+      }
+      dout(7) << " MDS_MONITOR " << __func__ << " ----------------------------------- " << dendl;
+      #endif
       dout(15) << "  matching exporters to import sources" << dendl;
 
+      #ifdef MDS_MONITOR
+      dout(7) << " BEGIN TO LIST EXPORTER " << dendl;
+      #endif
       // big -> small exporters
       for (multimap<double,mds_rank_t>::reverse_iterator ex = exporters.rbegin();
 	   ex != exporters.rend();
 	   ++ex) {
 	double maxex = get_maxex(state, ex->second);
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << "(5) list exporters: "<< maxex << dendl;
+    #endif
+
 	if (maxex <= .001) continue;
 
 	// check importers. for now, just in arbitrary order (no intelligent matching).
@@ -718,10 +817,16 @@ void MDBalancer::prep_rebalance(int beat)
 	     im != importers.end()) {
         double maxex = get_maxex(state, ex->second);
 	double maxim = get_maxim(state, im->second);
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " before match: maxex: "<<maxex<<" maxim: "<<maxim << dendl;
+  #endif
 	if (maxex < .001 || maxim < .001) break;
 	try_match(state, ex->second, maxex, im->second, maxim);
 	if (maxex <= .001) ++ex;
 	if (maxim <= .001) ++im;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " after match: maxex: "<<maxex<<" maxim: "<<maxim << dendl;
+  #endif
       }
     } else { // new way
       dout(15) << "  matching small exporters to big importers" << dendl;
@@ -739,6 +844,26 @@ void MDBalancer::prep_rebalance(int beat)
       }
     }
   }
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " ----------------------------------- " << dendl;
+  dout(7) << " MDS_MONITOR " << __func__ << " (6) after determination, state elements " << dendl;
+  map<mds_rank_t, double>::iterator it_target = state.targets.begin();
+  while(it_target != state.targets.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << "(6) targets mds." << it_target->first << " load " << it_target->second << dendl;
+    it_target++;
+  }
+  map<mds_rank_t, double>::iterator it_import = state.imported.begin();
+  while(it_import != state.imported.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << "(6) imported mds." << it_import->first << " load " << it_import->second << dendl;
+    it_import++;
+  }
+  map<mds_rank_t, double>::iterator it_export = state.exported.begin();
+  while(it_export != state.exported.end()){
+    dout(7) << " MDS_MONITOR " << __func__ << "(6) exported mds." << it_export->first << " load " << it_export->second << dendl;
+    it_export++;
+  }
+  dout(7) << " MDS_MONITOR " << __func__ << " ----------------------------------- " << dendl;
+  #endif
   try_rebalance(state);
 }
 
@@ -803,6 +928,10 @@ void MDBalancer::try_rebalance(balance_state_t& state)
     return;
   }
 
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (1) start" <<dendl;
+  #endif
+
   // make a sorted list of my imports
   map<double,CDir*>    import_pop_map;
   multimap<mds_rank_t,CDir*>  import_from_map;
@@ -816,10 +945,19 @@ void MDBalancer::try_rebalance(balance_state_t& state)
     if (im->get_inode()->is_stray()) continue;
 
     double pop = im->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (2) Dir " << *im << " pop " << pop <<dendl;
+    #endif
+
     if (g_conf->mds_bal_idle_threshold > 0 &&
 	pop < g_conf->mds_bal_idle_threshold &&
 	im->inode != mds->mdcache->get_root() &&
 	im->inode->authority().first != mds->get_nodeid()) {
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (2) exporting idle (" << pop << " ) import " << *im
+        << " back to mds. " << im->inode->authority().first <<dendl;
+      #endif
       dout(5) << " exporting idle (" << pop << ") import " << *im
 	      << " back to mds." << im->inode->authority().first
 	      << dendl;
@@ -830,6 +968,9 @@ void MDBalancer::try_rebalance(balance_state_t& state)
     import_pop_map[ pop ] = im;
     mds_rank_t from = im->inode->authority().first;
     dout(15) << "  map: i imported " << *im << " from " << from << dendl;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (2) record import directory mds." << from << ", Dir " << *im << " pop " << pop <<dendl;
+    #endif
     import_from_map.insert(pair<mds_rank_t,CDir*>(from, im));
   }
 
@@ -849,6 +990,11 @@ void MDBalancer::try_rebalance(balance_state_t& state)
       //<< " .. " << (*it).second << " * " << load_fac
 	    << " -> " << amount
 	    << dendl;//" .. fudge is " << fudge << dendl;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (3) SELECT exported directory, send " << amount << " to mds." << target <<dendl;
+    #endif
+
+
     double have = 0.0;
 
 
@@ -857,11 +1003,17 @@ void MDBalancer::try_rebalance(balance_state_t& state)
     // search imports from target
     if (import_from_map.count(target)) {
       dout(5) << " aha, looking through imports from target mds." << target << dendl;
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (3) aha,  looking through imports from target mds." << target <<dendl;
+      #endif
       pair<multimap<mds_rank_t,CDir*>::iterator, multimap<mds_rank_t,CDir*>::iterator> p =
 	import_from_map.equal_range(target);
       while (p.first != p.second) {
 	CDir *dir = (*p.first).second;
 	dout(5) << "considering " << *dir << " from " << (*p.first).first << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " (3) considering " << *dir << " from " << (*p.first).first <<dendl;
+  #endif
 	multimap<mds_rank_t,CDir*>::iterator plast = p.first++;
 
 	if (dir->inode->is_base() ||
@@ -875,16 +1027,25 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 	  dout(5) << "reexporting " << *dir
 		  << " pop " << pop
 		  << " back to mds." << target << dendl;
+   
 	  mds->mdcache->migrator->export_dir_nicely(dir, target);
 	  have += pop;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (3) Have " << have << " reexporting " << *dir << " pop " << pop << " back to mds." << target <<dendl;
+    #endif
 	  import_from_map.erase(plast);
 	  import_pop_map.erase(pop);
 	} else {
 	  dout(5) << "can't reexport " << *dir << ", too big " << pop << dendl;
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (3) can't reexport " << *dir << ", too big " << pop << dendl;
+    #endif
 	}
 	if (amount-have < MIN_OFFLOAD) break;
       }
     }
+
+
     if (amount-have < MIN_OFFLOAD) {
       continue;
     }
@@ -910,12 +1071,17 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 	}
 	if (amount-have < MIN_OFFLOAD) break;
       }
+
+
     if (amount-have < MIN_OFFLOAD) {
       //fudge = amount-have;
       continue;
     }
 
     // okay, search for fragments of my workload
+     #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << " (4) searching directory workloads " <<dendl;
+    #endif
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
 
@@ -939,6 +1105,10 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 	       << " to mds." << target
 	       << " " << **it
 	       << dendl;
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << " (5) exporting " << (*it)->pop_auth_subtree << "  " << (*it)->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate)
+       << " to mds." << target << " DIR " << **it <<dendl;
+      #endif
       mds->mdcache->migrator->export_dir_nicely(*it, target);
     }
   }
@@ -966,6 +1136,11 @@ void MDBalancer::find_exports(CDir *dir,
 
   double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
   dout(7) << " find_exports in " << dir_pop << " " << *dir << " need " << need << " (" << needmin << " - " << needmax << ")" << dendl;
+  #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << " needmax " << needmax << " needmin " << needmin << " midchunk " << midchunk << " minchunk " << minchunk << dendl;
+  dout(7) << " MDS_MONITOR " << __func__ << "(1) Find DIR " << *dir << " pop " << dir_pop << 
+  " amount " << amount << " have " << have << " need " << need << dendl;
+  #endif  
 
   double subdir_sum = 0;
   for (auto it = dir->begin(); it != dir->end(); ++it) {
@@ -979,6 +1154,7 @@ void MDBalancer::find_exports(CDir *dir,
 	 p != dfls.end();
 	 ++p) {
       CDir *subdir = *p;
+
       if (!subdir->is_auth()) continue;
       if (already_exporting.count(subdir)) continue;
 
@@ -988,11 +1164,18 @@ void MDBalancer::find_exports(CDir *dir,
       double pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
       subdir_sum += pop;
       dout(15) << "   subdir pop " << pop << " " << *subdir << dendl;
+      #ifdef MDS_MONITOR
+      dout(7) << " MDS_MONITOR " << __func__ << "(2) Searching DIR " << *subdir << " pop " << pop << dendl;
+      #endif
 
       if (pop < minchunk) continue;
 
       // lucky find?
       if (pop > needmin && pop < needmax) {
+        #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << "(2) Lucky Find DIR " << *subdir << " pop " << pop << 
+  " needmin~needmax " << needmin << " ~ " << needmax << " have " << have << " need " << need << dendl;
+  #endif 
 	exports.push_back(subdir);
 	already_exporting.insert(subdir);
 	have += pop;
@@ -1016,11 +1199,17 @@ void MDBalancer::find_exports(CDir *dir,
        it != smaller.rend();
        ++it) {
 
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << "(3) See smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
+    #endif
+
     if ((*it).first < midchunk)
       break;  // try later
 
     dout(7) << "   taking smaller " << *(*it).second << dendl;
-
+    #ifdef MDS_MONITOR
+    dout(7) << " MDS_MONITOR " << __func__ << "(3) taking smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
+    #endif
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
@@ -1032,6 +1221,9 @@ void MDBalancer::find_exports(CDir *dir,
   for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
        ++it) {
+    #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << "(4) descending into bigger DIR " << **it << dendl;
+  #endif
     dout(15) << "   descending into " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
     if (have > needmin)
@@ -1043,7 +1235,9 @@ void MDBalancer::find_exports(CDir *dir,
        it != smaller.rend();
        ++it) {
     dout(7) << "   taking (much) smaller " << it->first << " " << *(*it).second << dendl;
-
+    #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << "(5) taking (much) smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
+  #endif
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
@@ -1055,6 +1249,9 @@ void MDBalancer::find_exports(CDir *dir,
   for (list<CDir*>::iterator it = bigger_rep.begin();
        it != bigger_rep.end();
        ++it) {
+    #ifdef MDS_MONITOR
+  dout(7) << " MDS_MONITOR " << __func__ << "(6) descending into replicated DIR " << **it << dendl;
+  #endif
     dout(7) << "   descending into replicated " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
     if (have > needmin)
@@ -1074,6 +1271,7 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
 {
+  dout(20) << __func__ << dendl;
   // split/merge
   if (g_conf->mds_bal_frag && g_conf->mds_bal_fragment_interval > 0 &&
       !dir->inode->is_base() &&        // not root/base (for now at least)
@@ -1084,6 +1282,7 @@ void MDBalancer::maybe_fragment(CDir *dir, bool hot)
 	mds->mdsmap->allows_dirfrags() &&
 	(dir->should_split() || hot))
     {
+      dout(20) << __func__ << " mds_bal_split_size " << g_conf->mds_bal_split_size << " dir's frag size " << dir->get_frag_size() << dendl;
       if (split_pending.count(dir->dirfrag()) == 0) {
         queue_split(dir, false);
       } else {
@@ -1112,7 +1311,8 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   const bool hot = (v > g_conf->mds_bal_split_rd && type == META_POP_IRD) ||
                    (v > g_conf->mds_bal_split_wr && type == META_POP_IWR);
 
-  dout(20) << "hit_dir " << type << " pop is " << v << ", frag " << dir->get_frag()
+  dout(20) << "hit_dir " << dir->get_path() << " mds_bal_split_rd " << g_conf->mds_bal_split_rd << " mds_bal_split_wr " << g_conf->mds_bal_split_wr << " hit " << v << dendl; 
+  dout(20) << "hit_dir " << dir->get_path() << " " << type << " pop is " << v << ", frag " << dir->get_frag()
            << " size " << dir->get_frag_size() << dendl;
 
   maybe_fragment(dir, hot);
@@ -1140,9 +1340,11 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 	      << " in " << *dir << dendl;
     }
 
+    dout(20) << "TAG hit_dir " << dir->get_path() << " dir_pop " << dir_pop << " mds_bal_replicate_threshold " << g_conf->mds_bal_replicate_threshold << dendl; 
     if (dir->is_auth() && !dir->is_ambiguous_auth()) {
       if (!dir->is_rep() &&
 	  dir_pop >= g_conf->mds_bal_replicate_threshold) {
+	dout(20) << "hit_dir dir " << dir->get_path() << " dir_pop " << dir_pop << " > mds_bal_replicate_threshold " << g_conf->mds_bal_replicate_threshold << ", replicate dir " << dir->get_path() << "!" << dendl;
 	// replicate
 	double rdp = dir->pop_me.get(META_POP_IRD).get(now, mds->mdcache->decayrate);
 	rd_adj = rdp / mds->get_mds_map()->get_num_in_mds() - rdp;
@@ -1150,6 +1352,10 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
 	dout(5) << "replicating dir " << *dir << " pop " << dir_pop << " .. rdp " << rdp << " adj " << rd_adj << dendl;
 
+	#ifdef MDS_MONITOR
+	dout(0) << "replicating dir " << *dir << " pop " << dir_pop << " .. rdp " << rdp << " adj " << rd_adj << dendl;
+	#endif
+	
 	dir->dir_rep = CDir::REP_ALL;
 	mds->mdcache->send_dir_updates(dir, true);
 

@@ -13,7 +13,7 @@ fi
 
 mkdir build
 cd build
-cmake -DBOOST_J=$(nproc) $ARGS "$@" ..
+cmake -DBOOST_J=$(nproc) -DCMAKE_INSTALL_PREFIX=/usr $ARGS "$@" ..
 
 # minimal config to find plugins
 cat <<EOF > ceph.conf

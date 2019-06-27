@@ -66,6 +66,10 @@ using namespace std;
 
 #include "common/config.h"
 
+#ifdef MDS_MONITOR
+#include "MDMonitor.h"
+#endif
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
@@ -188,6 +192,15 @@ Server::Server(MDSRank *m) :
   reconnect_evicting(false),
   terminating_sessions(false)
 {
+  #ifdef MDS_MONITOR
+  monitor_init();
+
+  pthread_t tid;
+  int r = pthread_create(&tid, NULL, monitor_run, this);
+  if(r < 0)
+    dout(1) << __func__ << " run monitor error." << dendl;
+  pthread_detach(tid);
+  #endif
 }
 
 
@@ -1161,11 +1174,21 @@ void Server::journal_and_reply(MDRequestRef& mdr, CInode *in, CDentry *dn, LogEv
   if (dn)
     mdr->pin(dn);
 
+  #ifdef MDS_MONITOR_LAT
+  utime_t lat_start = ceph_clock_now();
+  #endif
   early_reply(mdr, in, dn);
+  #ifdef MDS_MONITOR_LAT
+  utime_t lat_end_early_reply = ceph_clock_now();
+  dout(0) << "journal_and_reply lat_early_reply " << lat_end_early_reply - lat_start << " LogEvent " << le << dendl;
+  #endif
   
   mdr->committing = true;
   submit_mdlog_entry(le, fin, mdr, __func__);
-  
+  #ifdef MDS_MONITOR_LAT
+  utime_t lat_end_submit_mdlog_entry = ceph_clock_now();
+  dout(0) << "journal_and_reply lat_submit_mdlog_entry " << lat_end_submit_mdlog_entry - lat_end_early_reply << " LogEvent " << le << dendl;
+  #endif
   if (mdr->client_request && mdr->client_request->is_queued_for_replay()) {
     if (mds->queue_one_replay()) {
       dout(10) << " queued next replay op" << dendl;
@@ -1177,6 +1200,11 @@ void Server::journal_and_reply(MDRequestRef& mdr, CInode *in, CDentry *dn, LogEv
     mds->locker->drop_rdlocks_for_early_reply(mdr.get());
   else
     mdlog->flush();
+
+    #ifdef MDS_MONITOR_LAT
+    utime_t lat_end_journal_and_reply = ceph_clock_now();
+    dout(0) << "journal_and_reply lat_tail " << lat_end_journal_and_reply - lat_end_submit_mdlog_entry << " LogEvent " << le << dendl;
+    #endif
 }
 
 void Server::submit_mdlog_entry(LogEvent *le, MDSLogContextBase *fin, MDRequestRef& mdr,
@@ -1200,88 +1228,173 @@ void Server::respond_to_request(MDRequestRef& mdr, int r)
 
     // add here to avoid counting ops multiple times (e.g., locks, loading)
     switch(mdr->client_request->get_op()) {
+    dout(20) << __func__ << " mon_op++ " << dendl;
     case CEPH_MDS_OP_LOOKUPHASH:
       logger->inc(l_mdss_req_lookuphash);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookuphash]++;
+      #endif
       break;
     case CEPH_MDS_OP_LOOKUPINO:
       logger->inc(l_mdss_req_lookupino);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookupino]++;
+      #endif
       break;
     case CEPH_MDS_OP_LOOKUPPARENT:
       logger->inc(l_mdss_req_lookupparent);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookupparent]++;
+      #endif
       break;
     case CEPH_MDS_OP_LOOKUPNAME:
       logger->inc(l_mdss_req_lookupname);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookupname]++;
+      #endif
       break;
     case CEPH_MDS_OP_LOOKUP:
       logger->inc(l_mdss_req_lookup);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookup]++;
+      #endif
       break;
     case CEPH_MDS_OP_LOOKUPSNAP:
       logger->inc(l_mdss_req_lookupsnap);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lookupsnap]++;
+      #endif
       break;
     case CEPH_MDS_OP_GETATTR:
       logger->inc(l_mdss_req_getattr);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_getattr]++;
+      #endif
       break;
     case CEPH_MDS_OP_SETATTR:
       logger->inc(l_mdss_req_setattr);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_setattr]++;
+      #endif
       break;
     case CEPH_MDS_OP_SETLAYOUT:
       logger->inc(l_mdss_req_setlayout);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_setlayout]++;
+      #endif
       break;
     case CEPH_MDS_OP_SETDIRLAYOUT:
       logger->inc(l_mdss_req_setdirlayout);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_setdirlayout]++;
+      #endif
       break;
     case CEPH_MDS_OP_SETXATTR:
       logger->inc(l_mdss_req_setxattr);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_setxattr]++;
+      #endif
       break;
     case CEPH_MDS_OP_RMXATTR:
       logger->inc(l_mdss_req_rmxattr);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_rmxattr]++;
+      #endif
       break;
     case CEPH_MDS_OP_READDIR:
       logger->inc(l_mdss_req_readdir);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_readdir]++;
+      #endif
       break;
     case CEPH_MDS_OP_SETFILELOCK:
       logger->inc(l_mdss_req_setfilelock);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_setfilelock]++;
+      #endif
       break;
     case CEPH_MDS_OP_GETFILELOCK:
       logger->inc(l_mdss_req_getfilelock);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_getfilelock]++;
+      #endif
       break;
     case CEPH_MDS_OP_CREATE:
       logger->inc(l_mdss_req_create);
+      // #ifdef MDS_MONITOR
+      //   mon_op[mon_mdss_req_create]++;
+      // #endif
     case CEPH_MDS_OP_OPEN:
       logger->inc(l_mdss_req_open);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_open]++;
+      #endif
       break;
     case CEPH_MDS_OP_MKNOD:
       logger->inc(l_mdss_req_mknod);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_mknod]++;
+      #endif
       break;
     case CEPH_MDS_OP_LINK:
       logger->inc(l_mdss_req_link);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_link]++;
+      #endif
       break;
     case CEPH_MDS_OP_UNLINK:
       logger->inc(l_mdss_req_unlink);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_unlink]++;
+      #endif
       break;
     case CEPH_MDS_OP_RMDIR:
       logger->inc(l_mdss_req_rmdir);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_rmdir]++;
+      #endif
       break;
     case CEPH_MDS_OP_RENAME:
       logger->inc(l_mdss_req_rename);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_rename]++;
+      #endif
       break;
     case CEPH_MDS_OP_MKDIR:
       logger->inc(l_mdss_req_mkdir);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_mkdir]++;
+      #endif
       break;
     case CEPH_MDS_OP_SYMLINK:
       logger->inc(l_mdss_req_symlink);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_symlink]++;
+      #endif
       break;
     case CEPH_MDS_OP_LSSNAP:
       logger->inc(l_mdss_req_lssnap);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_lssnap]++;
+      #endif
       break;
     case CEPH_MDS_OP_MKSNAP:
       logger->inc(l_mdss_req_mksnap);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_mksnap]++;
+      #endif
       break;
     case CEPH_MDS_OP_RMSNAP:
       logger->inc(l_mdss_req_rmsnap);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_rmsnap]++;
+      #endif
       break;
     case CEPH_MDS_OP_RENAMESNAP:
       logger->inc(l_mdss_req_renamesnap);
+      #ifdef MDS_MONITOR
+        mon_op[mon_mdss_req_renamesnap]++;
+      #endif
       break;
     }
   } else if (mdr->internal_op > -1) {
@@ -1714,6 +1827,12 @@ void Server::handle_client_request(MClientRequest *req)
   }
 
   dispatch_client_request(mdr);
+
+  #ifdef MDS_MONITOR
+  iops_client_request++;
+  dout(20) << __func__ << " iops_client_request " << iops_client_request << dendl;
+  #endif
+
   return;
 }
 
@@ -1994,6 +2113,10 @@ void Server::handle_slave_request(MMDSSlaveRequest *m)
   mdr->slave_request = m;
   
   dispatch_slave_request(mdr);
+
+  #ifdef MDS_MONITOR
+  iops_slave_request++;
+  #endif
 }
 
 /* This function DOES put the passed message before returning*/

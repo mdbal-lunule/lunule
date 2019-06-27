@@ -36,6 +36,8 @@
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << mds->get_nodeid() << ".log "
 
+// #define LOG_CYX
+
 // cons/des
 MDLog::~MDLog()
 {
@@ -453,6 +455,7 @@ void MDLog::wait_for_safe(MDSInternalContextBase *c)
 
 void MDLog::flush()
 {
+  dout(20) << __func__ << dendl;
   submit_mutex.Lock();
 
   bool do_flush = unflushed > 0;
@@ -568,6 +571,7 @@ void MDLog::_journal_segment_subtree_map(MDSInternalContextBase *onsync)
 
 void MDLog::trim(int m)
 {
+  dout(20) << "MDLog::trim" << dendl;
   unsigned max_segments = g_conf->mds_log_max_segments;
   int max_events = g_conf->mds_log_max_events;
   if (m >= 0)
@@ -622,8 +626,12 @@ void MDLog::trim(int m)
 
     // Do not trim too many segments at once for peak workload. If mds keeps creating N segments each tick,
     // the upper bound of 'num_remaining_segments - max_segments' is '2 * N'
-    if (new_expiring_segments * 2 > num_remaining_segments)
+    if (new_expiring_segments * 2 > num_remaining_segments){
+      #ifdef LOG_CYX
+      dout(0) << "MDLog::trim new_expiring_segments " << new_expiring_segments << " * 2 > num_remaining_segments " << num_remaining_segments << dendl; 
+      #endif
       break;
+    }
 
     // look at first segment
     LogSegment *ls = p->second;
@@ -648,6 +656,10 @@ void MDLog::trim(int m)
       expiring_segments.insert(ls);
       expiring_events += ls->num_events;
       submit_mutex.Unlock();
+
+      #ifdef LOG_CYX
+      dout(0) << "MDLog::trim new_expiring_segments " << new_expiring_segments << " segments " << segments.size() << " expiring_segments " << expiring_segments.size() << " expired_segments " << expired_segments.size() << " num_remaining_segments " << num_remaining_segments << dendl;
+      #endif
 
       uint64_t last_seq = ls->seq;
       try_expire(ls, op_prio);

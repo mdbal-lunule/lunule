@@ -809,6 +809,7 @@ public:
 void Migrator::export_dir(CDir *dir, mds_rank_t dest)
 {
   dout(7) << "export_dir " << *dir << " to " << dest << dendl;
+  dout(0) << "EXPORT_MONITOR " << dir->get_path() << " " << mds->get_nodeid() << " " << dest << dendl;
   assert(dir->is_auth());
   assert(dest != mds->get_nodeid());
    

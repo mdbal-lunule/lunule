@@ -71,7 +71,6 @@
 #define MDS_TRAVERSE_DISCOVER      2    // skips permissions checks etc.
 #define MDS_TRAVERSE_DISCOVERXLOCK 3    // succeeds on (foreign?) null, xlocked dentries.
 
-
 typedef int32_t mds_rank_t;
 typedef int32_t fs_cluster_id_t;
 
@@ -1482,6 +1481,15 @@ public:
       i.reset(now);
     }
   }
+  string show_meta_vel(){
+    string show_vel_string = "IRD: " + to_string(vec[META_POP_IRD].get_last_vel()) + 
+    "IWR: " + to_string(vec[META_POP_IWR].get_last_vel()) + 
+    "READDIR: " + to_string(vec[META_POP_READDIR].get_last_vel()) + 
+    "FETCH: " + to_string(vec[META_POP_FETCH].get_last_vel()) + 
+    "STORE: " + to_string(vec[META_POP_STORE].get_last_vel());
+    return show_vel_string;
+    
+  }
   double meta_load(utime_t now, const DecayRate& rate) {
     return 
       1*vec[META_POP_IRD].get(now, rate) + 
@@ -1681,5 +1689,28 @@ struct keys_and_values
     qi::rule<Iterator, std::pair<string, string>()> pair;
     qi::rule<Iterator, string()> key, value;
 };
+
+//for imbalance factor
+struct migration_decision_t {
+    mds_rank_t target_import_mds;
+    float target_export_load;
+
+  /*void encode(bufferlist& bl) const {
+    ENCODE_START(2, 2, bl);
+    ::encode(target_import_mds, bl);
+    ::encode(target_export_load, bl);
+    ENCODE_FINISH(bl);
+  }
+  void decode(bufferlist::iterator& p) {
+    DECODE_START_LEGACY_COMPAT_LEN(2, 2, 2, p);
+    ::decode(target_import_mds, p);
+    ::decode(target_export_load, p);
+    DECODE_FINISH(p);
+  }*/
+};
+//WRITE_CLASS_ENCODER(migration_decision_t)
+
+//inline void encode(const migration_decision_t &c, bufferlist &bl) { c.encode(bl); }
+//inline void decode(migration_decision_t &c, bufferlist::iterator &p) { c.decode(p);}
 
 #endif

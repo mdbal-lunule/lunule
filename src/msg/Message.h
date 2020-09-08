@@ -168,6 +168,7 @@
 #define MSG_MDS_GATHERCAPS            0x472
 
 #define MSG_MDS_HEARTBEAT          0x500  // for mds load balancer
+#define MSG_MDS_IFBEAT             0x501  // for imbalance factor
 
 // *** generic ***
 #define MSG_TIMECHECK             0x600

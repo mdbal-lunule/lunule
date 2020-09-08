@@ -25,10 +25,12 @@ using std::map;
 #include "include/types.h"
 #include "common/Clock.h"
 #include "common/Cond.h"
+#include "mds/mdstypes.h"
 
 class MDSRank;
 class Message;
 class MHeartbeat;
+class MIFBeat;
 class CInode;
 class CDir;
 class Messenger;
@@ -36,6 +38,7 @@ class MonClient;
 
 class MDBalancer {
   friend class C_Bal_SendHeartbeat;
+  friend class C_Bal_SendIFbeat;
 public:
   MDBalancer(MDSRank *m, Messenger *msgr, MonClient *monc) : 
     mds(m),
@@ -82,6 +85,14 @@ private:
     std::map<mds_rank_t, double> exported;
   } balance_state_t;
 
+
+  typedef struct{
+    double my_if;
+    double my_urgency;
+    mds_rank_t whoami;
+    bool is_bigger;
+  }imbalance_summary_t;
+
   //set up the rebalancing targets for export and do one if the
   //MDSMap is up to date
   void prep_rebalance(int beat);
@@ -92,8 +103,9 @@ private:
   void export_empties();
   int localize_balancer();
   void send_heartbeat();
+  void send_ifbeat(mds_rank_t target, double if_beate_value, vector<migration_decision_t>& migration_decision);
   void handle_heartbeat(MHeartbeat *m);
-  void find_exports_dominator(CDir *dir,
+  void find_exports_coldfirst_trigger(CDir *dir,
                               double amount,
                               list<CDir*>& exports,
                               double& have, mds_rank_t dest,
@@ -105,11 +117,21 @@ private:
                     set<CDir*>& already_exporting,
                     mds_rank_t dest,
                     int descend_depth);
+  void handle_ifbeat(MIFBeat *m);
+  void simple_determine_rebalance(vector<migration_decision_t>& migration_decision);
   void find_exports(CDir *dir,
                     double amount,
                     list<CDir*>& exports,
                     double& have,
-                    set<CDir*>& already_exporting);
+                    set<CDir*>& already_exporting,
+		    mds_rank_t target=0);
+
+  void find_exports_wrapper(CDir *dir,
+                    double amount,
+                    list<CDir*>& exports,
+                    double& have,
+                    set<CDir*>& already_exporting,
+		    mds_rank_t target);
 
   double try_match(balance_state_t &state,
                    mds_rank_t ex, double& maxex,
@@ -154,6 +176,7 @@ private:
   map<mds_rank_t, mds_load_t>  mds_load;
   map<mds_rank_t, double>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
+  map<mds_rank_t, float> old_req;
 
   // per-epoch state
   double          my_load, target_load;

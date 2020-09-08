@@ -159,6 +159,7 @@ using namespace std;
 #include "messages/MDentryLink.h"
 
 #include "messages/MHeartbeat.h"
+#include "messages/MIFBeat.h"
 
 #include "messages/MMDSTableRequest.h"
 
@@ -734,6 +735,10 @@ Message *decode_message(CephContext *cct, int crcflags,
 
   case MSG_MDS_HEARTBEAT:
     m = new MHeartbeat();
+    break;
+
+  case MSG_MDS_IFBEAT:
+    m = new MIFBeat();
     break;
 
   case MSG_MDS_CACHEEXPIRE:

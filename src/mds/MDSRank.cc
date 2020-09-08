@@ -725,6 +725,7 @@ bool MDSRank::handle_deferrable_message(Message *m)
       break;
 
     case MSG_MDS_HEARTBEAT:
+    case MSG_MDS_IFBEAT:
       ALLOW_MESSAGES_FROM(CEPH_ENTITY_TYPE_MDS);
       balancer->proc_message(m);
       break;

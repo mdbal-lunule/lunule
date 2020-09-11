@@ -10,14 +10,18 @@ void adsl::WL_Matcher::insert(const char * key, const char * value)
 adsl::WL_Matcher::WL_Matcher()
 {
 	insert("ai", "/ai");
-	insert("tar", "/tar/");
-	insert("ycsb-zipfian", "/usertable");
+	insert("tar", "/tar");
+	insert("ycsb-zipfian", "/ycsbzipf");
 	insert("web", "/web");
 	insert("fb-zipfian", "/filebench/zipfian/");
 }
 
 string adsl::WL_Matcher::match(string path)
 {
+	if(path.empty()){
+		return "root";
+	}
+
 	for (auto it = patterns.begin(); it != patterns.end(); it++) {
 		if (path.find(it->second) != string::npos) {
 			return it->first;
@@ -49,6 +53,9 @@ WorkloadType adsl::workload2type(string typestr)
 	}
 	else if (typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian") {
 		return WLT_ZIPF;
+	}else if (typestr == "root")
+	{
+		return WLT_ROOT;
 	}
 	return WLT_MIXED;
 }

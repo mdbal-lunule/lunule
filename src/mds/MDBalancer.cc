@@ -449,6 +449,9 @@ void MDBalancer::send_heartbeat()
 void MDBalancer::handle_ifbeat(MIFBeat *m){
   mds_rank_t who = mds_rank_t(m->get_source().num());
   mds_rank_t whoami = mds->get_nodeid();
+  double simple_migration_total_amount = 0.4;
+  double simple_migration_amount = 0.1;
+  double simple_if_threshold = 0.05;
 
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
 
@@ -520,7 +523,11 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       double avg_IOPS = std::accumulate(std::begin(IOPSvector), std::end(IOPSvector), 0.0)/IOPSvector.size(); 
       double max_IOPS = *max_element(IOPSvector.begin(), IOPSvector.end());
       double sum_quadratic = 0.0;
+      double my_if_threshold = simple_if_threshold/cluster_size;
+      int importer_count = 0;
 
+      mds_rank_t max_pos = mds_rank_t(IOPSvector.begin() - max_element(IOPSvector.begin(), IOPSvector.end()));
+      mds_rank_t min_pos = mds_rank_t(IOPSvector.begin() - min_element(IOPSvector.begin(), IOPSvector.end()));
       mds_rank_t temp_pos=mds_rank_t(0);
       vector<imbalance_summary_t> my_imbalance_vector(cluster_size);
       vector<imbalance_summary_t>::iterator my_if_it = my_imbalance_vector.begin();
@@ -536,11 +543,20 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           (*my_if_it).is_bigger = true;
         }else{
           (*my_if_it).is_bigger = false;
+          if((*my_if_it).my_if >= my_if_threshold){
+            importer_count++;
+          }
         }
         temp_pos++;
         my_if_it++;
       });
       
+      importer_count = max(importer_count, 1);
+      importer_count = min(importer_count, 5);
+
+      //simple_migration_amount = simple_migration_total_amount / importer_count;
+      simple_migration_amount = 0.1;
+
       double stdev_IOPS = sqrt(sum_quadratic/(IOPSvector.size()-1));
       double imbalance_degree = 0.0;
       
@@ -556,10 +572,9 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       
       //dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.1) avg_IOPS: " << avg_IOPS << " max_IOPS: " << max_IOPS << " stdev_IOPS: " << stdev_IOPS << " imbalance_degree: " << imbalance_degree << " presetmax: " << g_conf->mds_bal_presetmax << dendl;
 
-      double my_if_threshold = 0.05;
-      double simple_migration_amount = 0.1;
+      
 
-      if(imbalance_factor>=0.1){
+      if(imbalance_factor>=simple_if_threshold){
         dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.1) imbalance_factor is high enough: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << " start to send " << dendl;
         
         set<mds_rank_t> up;
@@ -569,10 +584,10 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           continue;
           vector<migration_decision_t> mds_decision;
 
-          if(my_imbalance_vector[*p].my_if>my_if_threshold && my_imbalance_vector[*p].is_bigger){
+          if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end();my_im_it++){
-            if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && (*my_im_it).my_if >=my_if_threshold){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,simple_migration_amount*load_vector[*p]};
+            if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p])};
               mds_decision.push_back(temp_decision);
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
@@ -581,11 +596,11 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           }
         }
 
-        if(my_imbalance_vector[0].is_bigger && my_imbalance_vector[0].my_if>=my_if_threshold){
+        if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].my_if>=my_if_threshold){
           vector<migration_decision_t> my_decision;
           for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end();my_im_it++){
-            if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && (*my_im_it).my_if >=0.05){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,simple_migration_amount*load_vector[0]};
+            if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
               my_decision.push_back(temp_decision);
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
@@ -600,7 +615,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
     }
   }else{
     double get_if_value = m->get_IFvaule();
-    if(get_if_value>=0.1){
+    if(get_if_value>=simple_if_threshold){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
       simple_determine_rebalance(m->get_decision());
 
@@ -1189,7 +1204,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       mds->mdcache->migrator->export_dir_nicely(*it, target);
     }
   }
-  dout(5) << " MDS_IFBEAT " << __func__ << " (4) simple rebalance done" << dendl;
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (4) simple rebalance done" << dendl;
 }
 
 
@@ -1369,7 +1384,7 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 
       #ifdef MDS_COLDFIRST_BALANCER
       //find_exports_coldfirst_trigger(*pot, amount, exports, have, target, already_exporting);
-      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, 5);
+      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, 10);
       #else
       find_exports(*pot, amount, exports, have, already_exporting);
       #endif
@@ -1416,68 +1431,64 @@ void MDBalancer::find_exports_coldfirst_trigger(CDir *dir,
                               mds_rank_t dest,
                               set<CDir*>& already_exporting)
 {
+  //bool have_dominator = false;
   double need = amount - have;
-  if (need < amount * g_conf->mds_bal_min_start)
-    return;   // good enough!
-  double needmax = need * g_conf->mds_bal_need_max;
-  double needmin = need * g_conf->mds_bal_need_min;
-  double midchunk = need * g_conf->mds_bal_midchunk;
-  double minchunk = need * g_conf->mds_bal_minchunk;
 
-  list<CDir*> bigger_rep, bigger_unrep;
-  int coldcount = 0;
-  int migcoldcount = 0;
+  list<CDir*> dominators;
 
   double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-  dout(1) << " MDS_COLD " << __func__ << " find_exports in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << " in (" << needmin << " - " << needmax << ")" << dendl;
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find dominator in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
   
-  double subdir_sum = 0;
-  for (auto it = dir->begin(); it != dir->end(); ++it) {
+  if (dir_pop > amount*0.05 ) {
+  find_exports_coldfirst(dir, amount, exports, have, already_exporting, dest, 10);
+  }
+
+
+/*  for (auto it = dir->begin(); it != dir->end(); ++it) {
     CInode *in = it->second->get_linkage()->get_inode();
     if (!in) continue;
     if (!in->is_dir()) continue;
 
     list<CDir*> dfls;
     in->get_dirfrags(dfls);
-    for (list<CDir*>::iterator p = dfls.begin();
-   p != dfls.end();
-   ++p) {
-      CDir *subdir = *p;
+      for (list<CDir*>::iterator p = dfls.begin();
+    p != dfls.end();
+    ++p) {
+        CDir *subdir = *p;
 
-      if (!subdir->is_auth()) continue;
-      if (already_exporting.count(subdir)) continue;
+        if (!subdir->is_auth()) continue;
+        if (already_exporting.count(subdir)) continue;
 
-      if (subdir->is_frozen()) continue;  // can't export this right now!
+        if (subdir->is_frozen() || dir->is_freezing() || subdir->get_inode()->is_stray()) continue;  // can't export this right now!
 
-      // how popular?
-      double pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-      subdir_sum += pop;
-      dout(1) << " subdir pop " << pop << " " << *subdir << dendl;
+        // how popular?
+        double pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+        //dout(1) << " subdir pop " << pop << " " << *subdir << dendl;
 
-      if (pop > needmin) {
-      //if (pop >=0 ) {
-        if (subdir->is_rep()){
-            dout(1) << " MDS_COLD " << __func__ << " find a big_rep " << *((*it).second) << " pop: " << pop << dendl;
-            bigger_rep.push_back(subdir);
-          }
-        else{dout(1) << " MDS_COLD " << __func__ << " find a big_unrep " << *((*it).second) << " pop: " << pop << dendl;
-          bigger_unrep.push_back(subdir);
-        }
-        break;
+        list<CDir*> sub_dfls;
+        subdir->get_inode()->get_dirfrags(sub_dfls);
+
+        if (pop > need*0.05 && sub_dfls.size() > 1) {
+          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD_DOMINATOR " << __func__ << " find a dominator " << *((*it).second) << " pop: " << pop << dendl;
+          //dominators.push_back(subdir);
+          find_exports_coldfirst(subdir, amount, exports, have, already_exporting, dest, 10);
+          have_dominator = true;
       }
-    }
-  }
 
-  for (list<CDir*>::iterator it = bigger_rep.begin();
-       it != bigger_rep.end();
-       ++it) {
-    dout(1) << " MDS_COLD " << __func__ << "   descending into big" << **it << dendl;
-    find_exports_coldfirst(*it, amount, exports, have, already_exporting, dest, 5);
-    if (have > needmin){
-      dout(1) << " MDS_COLD " << __func__ << " good" <<dendl;
-      return;
     }
-  }
+
+  }*/
+
+  /*if(!have_dominator){
+    for (list<CDir*>::iterator it = dominators.begin();
+       it != dominators.end();
+       ++it) {
+    dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " descending into big " << **it << dendl;
+    find_exports_coldfirst(*it, amount, exports, have, already_exporting, dest, 10);
+    }
+  }*/
+  
+
 }
 
 
@@ -1491,23 +1502,21 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
 {
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
   double need = amount - have;
-  if (need < amount * g_conf->mds_bal_min_start)
-    return;   // good enough!
   double needmax = need * g_conf->mds_bal_need_max;
   double needmin = need * g_conf->mds_bal_need_min;
   double midchunk = need * g_conf->mds_bal_midchunk;
   double minchunk = need * g_conf->mds_bal_minchunk;
 
-  list<CDir*> bigger_rep, bigger_unrep;
-  multimap<double, CDir*> smaller;
-  multimap<double, CDir*> verycold;
-  int coldcount = 0;
+  multimap<double, CDir*> warm;
   int migcoldcount = 0;
 
   double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+  if (dir_pop < amount*0.05 ) {
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " my load is too less " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
+  return;
+  }
   dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find_exports in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << " in (" << needmin << " - " << needmax << ")" << dendl;
   
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " needmax " << needmax << " needmin " << needmin << " midchunk " << midchunk << " minchunk " << minchunk << dendl;
   #ifdef MDS_MONITOR
   dout(1) << " MDS_MONITOR " << __func__ << " needmax " << needmax << " needmin " << needmin << " midchunk " << midchunk << " minchunk " << minchunk << dendl;
   dout(1) << " MDS_MONITOR " << __func__ << "(1) Find DIR " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
@@ -1518,7 +1527,7 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
   //hash frag to mds
   int frag_mod_dest = 0;
   unsigned int hash_frag = 0;
-  std::hash<inodeno_t> hash_frag_func;
+  std::hash<unsigned> hash_frag_func;
 
   for (auto it = dir->begin(); it != dir->end(); ++it) {
     CInode *in = it->second->get_linkage()->get_inode();
@@ -1540,117 +1549,41 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
       // how popular?
       double pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
       subdir_sum += pop;
-      dout(LUNULE_DEBUG_LEVEL) << " subdir pop " << pop << " " << *subdir << dendl;
+      //dout(1) << " subdir pop " << pop << " " << *subdir << dendl;
 
       //frag_mod_dest = int(subdir->get_frag().value())%cluster_size;
-      hash_frag = hash_frag_func(subdir->dirfrag().ino.val);
+      hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
+      //frag_mod_dest = (hash_frag%(2*cluster_size-1) + 1)/2;
       frag_mod_dest = hash_frag%cluster_size;
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " target: " << dest << dendl; 
-      if (pop < minchunk ) {
-        if (dest == frag_mod_dest)
-        {
-          verycold.insert(pair<double,CDir*>(pop, subdir));
-          coldcount++;
-          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " cold matched: find a cold " << *((*it).second) << " mod cluster_size:" << cluster_size << " == " << frag_mod_dest << " pop: " << pop << dendl;
-        }else{
-          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " cold unmatched: find a cold " << *((*it).second) << " mod cluster_size:" << cluster_size << " == " << frag_mod_dest << " pop: " << pop << dendl;
-        }
-      }
-      else if (pop > needmin) {
-        if (subdir->is_rep()){
-            dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find a big_rep " << *((*it).second) << " pop: " << pop << dendl;
-            bigger_rep.push_back(subdir);
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " frag_mod_dest: " << frag_mod_dest <<  " target: " << dest << dendl; 
+      if(frag_mod_dest!=mds->get_nodeid()){
+        
+          list<CDir*> sub_dfls;
+          subdir->get_inode()->get_dirfrags(sub_dfls);
+          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " sub_dfls.size() is " << sub_dfls.size() << dendl;
+          if(sub_dfls.size() > 1 && descend_depth > 0){
+          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " descending into " << *subdir << dendl;
+          find_exports_coldfirst(subdir, amount, exports, have, already_exporting, dest, descend_depth-1);
           }
-        else{dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find a big_unrep " << *((*it).second) << " pop: " << pop << dendl;
-          bigger_unrep.push_back(subdir);
-        }
+          if(frag_mod_dest == dest){
+          exports.push_back(subdir);
+          already_exporting.insert(subdir);
+          //have += pop;
+          migcoldcount++;
+          if(migcoldcount>=100){
+            dout(1) << " MDS_COLD " << __func__ << " find 100 frag enough " <<dendl;
+            return;
+          }
+          }
+      
       }
-      else{
-        if (dest == frag_mod_dest)
-        {
-          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " cold matched: find a smaller " << *((*it).second) << " mod cluster_size:" << cluster_size << " == " << frag_mod_dest << " pop: " << pop << dendl;
-          smaller.insert(pair<double,CDir*>(pop, subdir));
-        }else{
-          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " cold matched: find a smaller " << *((*it).second) << " mod cluster_size:" << cluster_size << " == " << frag_mod_dest << " pop: " << pop << dendl;
-        }
-    }
-
     }
   }
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;
 
-  multimap<double,CDir*>::iterator it;
-  if(verycold.size()>0){
-  dout(1) << " MDS_COLD " << __func__ << " cold first start " << dendl;
-    for (it = verycold.begin();
-       it != verycold.end();
-       ++it) {
-    exports.push_back((*it).second);
-    already_exporting.insert((*it).second);
-    have += (*it).first;
-    migcoldcount++;
-    /*if(migcoldcount>COLDSTART_MIGCOUNT){
-      dout(1) << " MDS_COLD " << __func__ << " find "<< COLDSTART_MIGCOUNT <<" cold fragments, stop " << dendl;
-      return;}*/
-    }
-//    sleep(100)
-  }else{
-    dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " unable to start cold balance" <<dendl;
-  }
 
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " export "<< coldcount <<" cold" << " start to find smaller " <<dendl;
-
-
-  // grab some sufficiently big small items
-  //multimap<double,CDir*>::iterator it;
-//  for (it = smaller.begin();it != smaller.end() && migcoldcount<=COLDSTART_MIGCOUNT ;++it) 
-  for (it = smaller.begin();it != smaller.end(); ++it) 
-  {
-
-    #ifdef MDS_MONITOR
-    dout(7) << " MDS_MONITOR " << __func__ << "(3) See smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
-    #endif
-
-    //if ((*it).first < midchunk)break;  // try later
-
-    dout(7) << "   taking smaller " << *(*it).second << dendl;
-    #ifdef MDS_MONITOR
-    dout(7) << " MDS_MONITOR " << __func__ << "(3) taking smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
-    #endif
-    migcoldcount++;
-    exports.push_back((*it).second);
-    already_exporting.insert((*it).second);
-    have += (*it).first;
-    if (have > needmin || descend_depth <= 0)
-      return;
-
-    for (multimap<double,CDir*>::reverse_iterator it = smaller.rbegin();
-       it != smaller.rend();
-       ++it) {
-    dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " descending into a smaller big " << *((*it).second) << dendl;
-    find_exports_coldfirst((*it).second, amount, exports, have, already_exporting, dest, descend_depth-1);
-    if (have > needmin){
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " good" <<dendl;
-      return;
-    }
-  }
-  }
-
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " big rep size: " << bigger_rep.size() << dendl;
-
-  for (list<CDir*>::iterator it = bigger_rep.begin();
-       it != bigger_rep.end();
-       ++it) {
-    dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << "   descending into big" << **it << dendl;
-    find_exports_coldfirst(*it, amount, exports, have, already_exporting, dest, descend_depth-1);
-    if (have > needmin){
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " good" <<dendl;
-      return;
-    }
-  }
-
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " export " << migcoldcount << " small and cold, stop " <<dendl;
-
+  dout(1) << " MDS_COLD " << __func__ << " export " << migcoldcount << " small and cold, stop " <<dendl;
+  //have += need/mds->get_mds_map()->get_num_in_mds();
 }
 #endif
 
@@ -1700,13 +1633,13 @@ void MDBalancer::find_exports(CDir *dir,
       if (!subdir->is_auth()) continue;
       if (already_exporting.count(subdir)) continue;
 
-      if (subdir->is_frozen()) continue;  // can't export this right now!
+      if (subdir->is_frozen() || subdir->is_freezing() || subdir->get_inode()->is_stray()) continue;  // can't export this right now!
 
       // how popular?
       double pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
       subdir_sum += pop;
 
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in subdir " << *subdir << " pop: " << pop << " Vel: " << subdir->pop_auth_subtree.show_meta_vel() << dendl;
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in subdir " << *subdir << " pop: " << pop << " have " << have << " Vel: " << subdir->pop_auth_subtree.show_meta_vel() << dendl;
 
       dout(15) << "   subdir pop " << pop << " " << *subdir << dendl;
       #ifdef MDS_MONITOR
@@ -1770,8 +1703,8 @@ void MDBalancer::find_exports(CDir *dir,
   dout(7) << " MDS_MONITOR " << __func__ << "(4) descending into bigger DIR " << **it << dendl;
   #endif
     dout(15) << "   descending into " << **it << dendl;
-    //find_exports(*it, amount, exports, have, already_exporting);
-    find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
+    find_exports(*it, amount, exports, have, already_exporting);
+    //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
     if (have > needmin)
       return;
   }
@@ -1799,7 +1732,8 @@ void MDBalancer::find_exports(CDir *dir,
   dout(7) << " MDS_MONITOR " << __func__ << "(6) descending into replicated DIR " << **it << dendl;
   #endif
     dout(7) << "   descending into replicated " << **it << dendl;
-    find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
+    find_exports(*it, amount, exports, have, already_exporting);
+    //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
     if (have > needmin)
       return;
   }
@@ -1817,11 +1751,43 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
   dir->get_inode()->make_path_string(s);
   WorkloadType wlt = adsl::workload2type(adsl::g_matcher.match(s));
   dout(LUNULE_DEBUG_LEVEL) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  
   switch (wlt) {
     case WLT_SCAN:
+    if(mds->get_nodeid()==0){
       find_exports_coldfirst_trigger(dir, amount, exports, have, target, already_exporting);
-      //find_exports_coldfirst(dir, amount, exports, have, already_exporting, target, 5);
+    }
+      //find_exports_coldfirst(dir, amount, exports, have, already_exporting, target, 10);
+      break;
+
+    case WLT_ZIPF:
+      if(mds->get_nodeid()==0){
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " ZIPF: diving to " << *dir << dendl;
+      find_exports(dir, amount, exports, have, already_exporting, target);
+      }else{
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " ZIPF: diving to parent: " << *(dir->inode->get_parent_dir()) << dendl;
+        find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
+      }
+      break;
+
+    case WLT_ROOT:
+    //dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper get root: " << *dir << dendl;
+    for (auto it = dir->begin(); it != dir->end(); ++it) {
+      CInode *in = it->second->get_linkage()->get_inode();
+      if (!in) continue;
+      if (!in->is_dir()) continue;
+      list<CDir*> root_sub_dfls;
+      in->get_dirfrags(root_sub_dfls);
+      for (list<CDir*>::iterator p = root_sub_dfls.begin();p != root_sub_dfls.end();++p) {
+        CDir *subdir = *p;
+        
+        dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper descend: from root to" << *subdir << dendl;
+        find_exports_wrapper(subdir, amount, exports, have, already_exporting, target);
+      }
+    }
+      break;
     default:
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to " << *dir << dendl;
       find_exports(dir, amount, exports, have, already_exporting, target);
       break;
   }

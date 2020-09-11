@@ -18,6 +18,7 @@ typedef enum _WorkloadType1 {
   WLT_SCAN,
   WLT_ZIPF,
   WLT_MIXED,
+  WLT_ROOT,
 } WorkloadType1;
 
 struct WorkloadType2 {

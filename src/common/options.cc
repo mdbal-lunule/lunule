@@ -6092,6 +6092,10 @@ std::vector<Option> get_mds_options() {
     .set_default(8000)
     .set_description(""),
 
+    Option("mds_bal_ifthreshold", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
+    .set_default(0.08)
+    .set_description(""),
+
     Option("mds_bal_ifenable", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(0)
     .set_description(""),

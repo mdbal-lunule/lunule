@@ -451,7 +451,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   mds_rank_t whoami = mds->get_nodeid();
   double simple_migration_total_amount = 0.4;
   double simple_migration_amount = 0.1;
-  double simple_if_threshold = 0.05;
+  double simple_if_threshold = g_conf->mds_bal_ifthreshold;
 
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
 

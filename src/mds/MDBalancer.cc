@@ -71,7 +71,7 @@ using std::vector;
 
 /* This function DOES put the passed message before returning */
 
-#define LUNULE_DEBUG_LEVEL 0
+#define LUNULE_DEBUG_LEVEL 7
 
 int MDBalancer::proc_message(Message *m)
 {
@@ -479,7 +479,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       typedef map<mds_rank_t, mds_load_t> mds_load_map_t;
       mds_load_map_t::value_type val(who, m->get_load());
       mds_load.insert(val);
-    } 
+    }
 
     if(mds->get_mds_map()->get_num_in_mds()==mds_load.size()){
       //calculate IF
@@ -605,6 +605,9 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
           }
+          
+          //clear old export
+          mds->mdcache->migrator->clear_export_queue();
           simple_determine_rebalance(my_decision);
         }
       }else{
@@ -617,6 +620,9 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
     double get_if_value = m->get_IFvaule();
     if(get_if_value>=simple_if_threshold){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
+
+      //clear old export
+      mds->mdcache->migrator->clear_export_queue();
       simple_determine_rebalance(m->get_decision());
 
     }else{
@@ -1511,16 +1517,16 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
   int migcoldcount = 0;
 
   double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-  if (dir_pop < amount*0.05 ) {
+  /*if (dir_pop < amount*0.01 ) {
   dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " my load is too less " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
   return;
-  }
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find_exports in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << " in (" << needmin << " - " << needmax << ")" << dendl;
+  }*/
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " hash in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << " in (" << needmin << " - " << needmax << ")" << dendl;
   
-  #ifdef MDS_MONITOR
+  /*#ifdef MDS_MONITOR
   dout(1) << " MDS_MONITOR " << __func__ << " needmax " << needmax << " needmin " << needmin << " midchunk " << midchunk << " minchunk " << minchunk << dendl;
   dout(1) << " MDS_MONITOR " << __func__ << "(1) Find DIR " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
-  #endif  
+  #endif  */
 
   double subdir_sum = 0;
 
@@ -1553,18 +1559,21 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
 
       //frag_mod_dest = int(subdir->get_frag().value())%cluster_size;
       hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
+
       //frag_mod_dest = (hash_frag%(2*cluster_size-1) + 1)/2;
       frag_mod_dest = hash_frag%cluster_size;
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " frag_mod_dest: " << frag_mod_dest <<  " target: " << dest << dendl; 
-      if(frag_mod_dest!=mds->get_nodeid()){
-        
-          list<CDir*> sub_dfls;
-          subdir->get_inode()->get_dirfrags(sub_dfls);
-          dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " sub_dfls.size() is " << sub_dfls.size() << dendl;
-          if(sub_dfls.size() > 1 && descend_depth > 0){
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " subdir: " << *subdir << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " frag_mod_dest: " << frag_mod_dest <<  " target: " << dest << dendl; 
+      
+      list<CDir*> sub_dfls;
+      subdir->get_inode()->get_dirfrags(sub_dfls);
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " subdir: " << *subdir <<"   is " << sub_dfls.size() << dendl;
+
+      if(sub_dfls.size() >= 1 && descend_depth > 0){
           dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " descending into " << *subdir << dendl;
           find_exports_coldfirst(subdir, amount, exports, have, already_exporting, dest, descend_depth-1);
-          }
+      }
+
+      if(frag_mod_dest!=mds->get_nodeid()){
           if(frag_mod_dest == dest){
           exports.push_back(subdir);
           already_exporting.insert(subdir);
@@ -1575,8 +1584,8 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
             return;
           }
           }
-      
       }
+
     }
   }
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;
@@ -1757,7 +1766,6 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
     if(mds->get_nodeid()==0){
       find_exports_coldfirst_trigger(dir, amount, exports, have, target, already_exporting);
     }
-      //find_exports_coldfirst(dir, amount, exports, have, already_exporting, target, 10);
       break;
 
     case WLT_ZIPF:
@@ -1788,7 +1796,20 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
       break;
     default:
       dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to " << *dir << dendl;
-      find_exports(dir, amount, exports, have, already_exporting, target);
+      for (auto it = dir->begin(); it != dir->end(); ++it) {
+      CInode *in = it->second->get_linkage()->get_inode();
+      if (!in) continue;
+      if (!in->is_dir()) continue;
+      list<CDir*> root_sub_dfls;
+      in->get_dirfrags(root_sub_dfls);
+      for (list<CDir*>::iterator p = root_sub_dfls.begin();p != root_sub_dfls.end();++p) {
+        CDir *subdir = *p;
+        
+        dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper descend: from Other to" << *subdir << dendl;
+        find_exports_wrapper(subdir, amount, exports, have, already_exporting, target);
+      }
+    }
+      //find_exports(dir, amount, exports, have, already_exporting, target);
       break;
   }
 }

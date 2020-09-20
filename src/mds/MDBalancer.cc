@@ -1580,7 +1580,7 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
           //have += pop;
           migcoldcount++;
           if(migcoldcount>=100){
-            dout(1) << " MDS_COLD " << __func__ << " find 100 frag enough " <<dendl;
+            dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find 100 frag enough " <<dendl;
             return;
           }
           }
@@ -1591,7 +1591,7 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;
 
 
-  dout(1) << " MDS_COLD " << __func__ << " export " << migcoldcount << " small and cold, stop " <<dendl;
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " export " << migcoldcount << " small and cold, stop " <<dendl;
   //have += need/mds->get_mds_map()->get_num_in_mds();
 }
 #endif

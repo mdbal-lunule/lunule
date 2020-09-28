@@ -13,7 +13,10 @@ adsl::WL_Matcher::WL_Matcher()
 	insert("tar", "/tar/");
 	insert("ycsb-zipfian", "/ycsbzipf");
 	insert("web", "/web");
-	insert("fb-zipfian", "/filebench/zipfian/");
+	insert("fb-create", "/filebench/fb_create");
+	insert("fb-lsdir", "/filebench/fb_lsdir");
+	insert("fb-stat", "/filebench/fb_stat");
+	insert("fb-zipfian", "/filebench/fb_zipfian/");
 }
 
 string adsl::WL_Matcher::match(string path)
@@ -48,12 +51,13 @@ map<string, int> adsl::req2workload(map<string, int> & reqs)
 
 WorkloadType adsl::workload2type(string typestr)
 {
-	if (typestr == "ai" || typestr == "tar") {
+	if (typestr == "ai" || typestr == "tar" || typestr == "fb-lsdir" || typestr == "fb-stat") {
 		return WLT_SCAN;
 	}
-	else if (typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian") {
+	else if (typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
 		return WLT_ZIPF;
-	}else if (typestr == "root")
+	}
+	else if (typestr == "root")
 	{
 		return WLT_ROOT;
 	}

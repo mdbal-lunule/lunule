@@ -585,10 +585,12 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           vector<migration_decision_t> mds_decision;
 
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
-            for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end();my_im_it++){
+          int max_importer_count = 0;
+            for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 4);my_im_it++){
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
               migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p])};
               mds_decision.push_back(temp_decision);
+              max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
           }
@@ -598,10 +600,12 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
 
         if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].my_if>=my_if_threshold){
           vector<migration_decision_t> my_decision;
-          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end();my_im_it++){
+          int max_importer_count = 0;
+          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 4);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
               my_decision.push_back(temp_decision);
+              max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
           }

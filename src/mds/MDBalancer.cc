@@ -69,6 +69,8 @@ using std::vector;
 #define MIN_REEXPORT 5  // will automatically reexport
 #define MIN_OFFLOAD 10   // point at which i stop trying, close enough
 
+#define COLDFIRST_DEPTH 2
+
 /* This function DOES put the passed message before returning */
 
 #define LUNULE_DEBUG_LEVEL 7
@@ -1397,7 +1399,7 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 
       #ifdef MDS_COLDFIRST_BALANCER
       //find_exports_coldfirst_trigger(*pot, amount, exports, have, target, already_exporting);
-      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, 10);
+      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, COLDFIRST_DEPTH);
       #else
       find_exports(*pot, amount, exports, have, already_exporting);
       #endif
@@ -1453,7 +1455,7 @@ void MDBalancer::find_exports_coldfirst_trigger(CDir *dir,
   dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find dominator in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
   
   if (dir_pop > amount*0.05 ) {
-  find_exports_coldfirst(dir, amount, exports, have, already_exporting, dest, 10);
+  find_exports_coldfirst(dir, amount, exports, have, already_exporting, dest, COLDFIRST_DEPTH);
   }
 
 
@@ -1565,8 +1567,11 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
       //dout(1) << " subdir pop " << pop << " " << *subdir << dendl;
 
       //frag_mod_dest = int(subdir->get_frag().value())%cluster_size;
-      hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
-
+      
+      //frag hash
+      //hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
+      //directory hash
+      hash_frag = hash_frag_func(subdir->ino().val);
       //frag_mod_dest = (hash_frag%(2*cluster_size-1) + 1)/2;
       frag_mod_dest = hash_frag%cluster_size;
       dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " subdir: " << *subdir << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " frag_mod_dest: " << frag_mod_dest <<  " target: " << dest << dendl; 

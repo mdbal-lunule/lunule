@@ -69,7 +69,7 @@ using std::vector;
 #define MIN_REEXPORT 5  // will automatically reexport
 #define MIN_OFFLOAD 10   // point at which i stop trying, close enough
 
-#define COLDFIRST_DEPTH 2
+#define COLDFIRST_DEPTH 1
 
 /* This function DOES put the passed message before returning */
 

@@ -620,7 +620,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           simple_determine_rebalance(my_decision);
         }
       }else{
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
+      dout(0) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
       }
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3)  ifbeat: No enough MDSload to calculate IF, skip " << dendl;

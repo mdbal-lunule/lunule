@@ -56,12 +56,19 @@ map<string, int> adsl::req2workload(map<string, int> & reqs)
 
 WorkloadType adsl::workload2type(string typestr)
 {
+	/*if (typestr == "tar" || typestr == "tar_0"|| typestr == "tar_1"|| typestr == "tar_2"|| typestr == "tar_3"|| typestr == "tar_4" || typestr == "fb-lsdir" || typestr == "fb-stat") {
+		return WLT_SCAN;
+	}
+	else if (typestr == "ai" || typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
+		return WLT_ZIPF;
+	}*/
 	if (typestr == "ai" || typestr == "tar" || typestr == "tar_0"|| typestr == "tar_1"|| typestr == "tar_2"|| typestr == "tar_3"|| typestr == "tar_4" || typestr == "fb-lsdir" || typestr == "fb-stat") {
 		return WLT_SCAN;
 	}
 	else if (typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
 		return WLT_ZIPF;
 	}
+	
 	else if (typestr == "root")
 	{
 		return WLT_ROOT;

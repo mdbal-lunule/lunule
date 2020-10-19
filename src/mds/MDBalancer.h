@@ -92,6 +92,7 @@ private:
     mds_rank_t whoami;
     bool is_bigger;
   }imbalance_summary_t;
+  static bool sortImporter (imbalance_summary_t i,imbalance_summary_t j) { return (i.my_if > j.my_if); };
 
   //set up the rebalancing targets for export and do one if the
   //MDSMap is up to date
@@ -99,7 +100,6 @@ private:
   int mantle_prep_rebalance();
 
   void handle_export_pins(void);
-
   void export_empties();
   int localize_balancer();
   void send_heartbeat();

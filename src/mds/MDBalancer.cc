@@ -586,7 +586,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         if (*p == mds->get_nodeid())
           continue;
           vector<migration_decision_t> mds_decision;
-
+          std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 4);my_im_it++){
@@ -1777,6 +1777,8 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
     case WLT_SCAN:
     if(mds->get_nodeid()==0){
       find_exports_coldfirst_trigger(dir, amount, exports, have, target, already_exporting);
+    }else{
+      find_exports_coldfirst_trigger(dir->inode->get_parent_dir(), amount, exports, have, target, already_exporting);
     }
       break;
 

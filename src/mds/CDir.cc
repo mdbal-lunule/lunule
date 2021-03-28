@@ -179,6 +179,42 @@ ostream& CDir::print_db_line_prefix(ostream& out)
 
 // -------------------------------------------------------------------
 // CDir
+void CDir::inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+{
+  this->num_dentries_nested += num_dentries_nested;
+  this->num_dentries_auth_subtree += num_dentries_auth_subtree;
+  this->num_dentries_auth_subtree_nested += num_dentries_auth_subtree_nested;
+  
+  CDir * pdir = get_parent_dir();
+  if (pdir) {
+    pdir->inc_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+  }
+}
+
+void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+{
+  this->num_dentries_nested -= num_dentries_nested;
+  this->num_dentries_auth_subtree -= num_dentries_auth_subtree;
+  this->num_dentries_auth_subtree_nested -= num_dentries_auth_subtree_nested;
+  
+  CDir * pdir = get_parent_dir();
+  if (pdir) {
+    pdir->dec_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+  }
+}
+
+int CDir::get_authsubtree_size_slow()
+{
+  int count = 0;
+  for (auto it = items.begin(); it != items.end(); it++) {
+    CDentry::linkage_t * linkage = it->second->get_linkage();
+    // We do not care about null (only name) and remote (Inode on another MDS) dentries
+    if (linkage->is_primary()) {
+      count += linkage->get_inode()->get_authsubtree_size_slow();
+    }
+  }
+  return count;
+}
 
 CDir::CDir(CInode *in, frag_t fg, MDCache *mdcache, bool auth) :
   cache(mdcache), inode(in), frag(fg),
@@ -350,6 +386,9 @@ CDentry* CDir::add_null_dentry(boost::string_view dname,
 
   dout(12) << "add_null_dentry " << *dn << dendl;
 
+  // increase dentries count (this dentry itself)
+  inc_density(1, 0, is_auth());
+
   // pin?
   if (get_num_any() == 1)
     get(PIN_CHILD);
@@ -401,6 +440,23 @@ CDentry* CDir::add_primary_dentry(boost::string_view dname, CInode *in,
   }    
 
   dout(12) << "add_primary_dentry " << *dn << dendl;
+  
+  // increase dentries count (this dentry itself)
+  int delta_dentries_nested = 1, delta_auth_subtree = 0, delta_auth_subtree_nested = (int) is_auth();
+  
+  // check nested subtrees
+  if (in) {
+    std::list<CDir *> subs;
+    in->get_dirfrags(subs);
+    for (CDir * subroot : subs) {
+      delta_dentries_nested += subroot->num_dentries_nested;
+      if (subroot->is_auth()) {
+	delta_auth_subtree += 1;
+	delta_auth_subtree_nested += subroot->num_dentries_auth_subtree_nested;
+      }
+    }
+  }
+  inc_density(delta_dentries_nested, delta_auth_subtree, delta_auth_subtree_nested);
 
   // pin?
   if (get_num_any() == 1)
@@ -440,6 +496,9 @@ CDentry* CDir::add_remote_dentry(boost::string_view dname, inodeno_t ino, unsign
   }    
 
   dout(12) << "add_remote_dentry " << *dn << dendl;
+
+  // increase dentries count (this dentry itself)
+  inc_density(1, 0, is_auth());
 
   // pin?
   if (get_num_any() == 1)

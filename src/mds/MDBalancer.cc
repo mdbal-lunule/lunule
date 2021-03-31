@@ -69,7 +69,7 @@ using std::vector;
 #define MIN_REEXPORT 5  // will automatically reexport
 #define MIN_OFFLOAD 10   // point at which i stop trying, close enough
 
-#define COLDFIRST_DEPTH 1
+#define COLDFIRST_DEPTH 2
 
 /* This function DOES put the passed message before returning */
 
@@ -1615,6 +1615,9 @@ void MDBalancer::find_exports(CDir *dir,
                               set<CDir*>& already_exporting,
 			      mds_rank_t target)
 {
+
+  dynamically_fragment(dir, amount);
+  
   dout(0) << " [WAN]: old export was happen " << dendl;
   double need = amount - have;
   if (need < amount * g_conf->mds_bal_min_start)
@@ -1761,6 +1764,48 @@ void MDBalancer::find_exports(CDir *dir,
 
 }
 
+
+void MDBalancer::dynamically_fragment(CDir *dir, double amount){
+  if (dir->get_inode()->is_stray() || !dir->is_auth()) return;
+  dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(0): " << *dir << dendl;
+  double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+  
+  if(dir_pop >amount*0.6){
+    dout(0) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
+    double sub_dir_total = 0;
+    for (auto it = dir->begin(); it != dir->end(); ++it) {
+    CInode *in = it->second->get_linkage()->get_inode();
+    if (!in) continue;
+    if (!in->is_dir()) continue;
+    dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(1): I'm " << *in << dendl;
+
+    list<CDir*> dfls;
+
+    in->get_dirfrags(dfls);
+    for (list<CDir*>::iterator p = dfls.begin();
+   p != dfls.end();
+   ++p) {
+      CDir *subdir = *p;
+      double sub_dir_pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+      sub_dir_total +=sub_dir_pop;
+      }
+   }
+  double file_hot_ratio = 1-sub_dir_total/dir_pop;
+  if(file_hot_ratio >=0.5){
+    dout(0) << __func__ << " dynamically (2) file_access_hotspot " << file_hot_ratio << " find in " << *dir << dendl;
+    maybe_fragment(dir,true);
+  }
+  dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(3) I'm" << *dir << " my_pop: " << dir_pop << " my_sub_pop: " << sub_dir_total << dendl;
+
+
+  }else{
+    return;
+  }
+
+   
+
+}
+
 void MDBalancer::find_exports_wrapper(CDir *dir,
                     double amount,
                     list<CDir*>& exports,
@@ -1768,10 +1813,14 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
                     set<CDir*>& already_exporting,
 		    mds_rank_t target)
 {
+  if(dir->inode->is_stray())return;
+  double total_hot = 0;
   string s;
   dir->get_inode()->make_path_string(s);
   WorkloadType wlt = adsl::workload2type(adsl::g_matcher.match(s));
-  dout(LUNULE_DEBUG_LEVEL) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  dout(0) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  
+  dynamically_fragment(dir, amount);
   
   switch (wlt) {
     case WLT_SCAN:
@@ -1793,6 +1842,8 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
       break;
 
     case WLT_ROOT:
+    total_hot = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+    dout(0) << __func__ << " totalhot: " << total_hot << *dir << dendl;
     //dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper get root: " << *dir << dendl;
     for (auto it = dir->begin(); it != dir->end(); ++it) {
       CInode *in = it->second->get_linkage()->get_inode();
@@ -1838,8 +1889,10 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
     hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
 }
 
+
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
 {
+  dout(0) << __func__ << " split " << *dir << dendl;
   dout(20) << __func__ << dendl;
   // split/merge
   if (g_conf->mds_bal_frag && g_conf->mds_bal_fragment_interval > 0 &&
@@ -1884,7 +1937,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   dout(20) << "hit_dir " << dir->get_path() << " " << type << " pop is " << v << ", frag " << dir->get_frag()
            << " size " << dir->get_frag_size() << dendl;
 
-  maybe_fragment(dir, hot);
+  //maybe_fragment(dir, hot);
 
   // replicate?
   if (type == META_POP_IRD && who >= 0) {

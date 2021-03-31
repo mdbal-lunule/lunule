@@ -75,6 +75,9 @@ public:
    * \param hot whether the directory's temperature is enough to split it
    */
   void maybe_fragment(CDir *dir, bool hot);
+  
+  // try to dynamically split dir
+  void dynamically_fragment(CDir *dir, double amount);
 
   void handle_mds_failure(mds_rank_t who);
 

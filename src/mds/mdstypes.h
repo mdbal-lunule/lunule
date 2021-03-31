@@ -31,6 +31,8 @@
 #include "include/assert.h"
 #include <boost/serialization/strong_typedef.hpp>
 
+#include "mds/adsl/mdstypes.h"
+
 #define CEPH_FS_ONDISK_MAGIC "ceph fs volume v011"
 
 #define MDS_PORT_CACHE   0x200
@@ -1553,6 +1555,8 @@ inline std::ostream& operator<<(std::ostream& out, dirfrag_load_vec_t& dl)
 struct mds_load_t {
   dirfrag_load_vec_t auth;
   dirfrag_load_vec_t all;
+  dirfrag_pot_load_t pot_auth;
+  dirfrag_pot_load_t pot_all;
 
   double req_rate = 0.0;
   double cache_hit_rate = 0.0;
@@ -1564,7 +1568,9 @@ struct mds_load_t {
   // mostly for the dencoder infrastructure
   mds_load_t() : auth(), all() {}
   
-  double mds_load();  // defiend in MDBalancer.cc
+  double mds_pop_load();  // defiend in MDBalancer.cc
+  double mds_pot_load(int epoch = -1);  // defiend in MDBalancer.cc
+  double mds_load(double alpha, double beta, int epoch = -1);  // defiend in MDBalancer.cc
   void encode(bufferlist& bl) const;
   void decode(const utime_t& now, bufferlist::iterator& bl);
   //this one is for dencoder infrastructure

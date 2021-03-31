@@ -223,7 +223,7 @@ public:
 };
 
 
-double mds_load_t::mds_load()
+double mds_load_t::mds_pop_load()
 {
   switch(g_conf->mds_bal_mode) {
   case 0:
@@ -244,6 +244,16 @@ double mds_load_t::mds_load()
   return 0;
 }
 
+double mds_load_t::mds_pot_load(int epoch)
+{
+  return pot_auth.pot_load(epoch);
+}
+
+double mds_load_t::mds_load(double alpha, double beta, int epoch)
+{
+    return alpha * mds_pop_load() + beta * mds_pot_load();
+}
+
 mds_load_t MDBalancer::get_load(utime_t now)
 {
   mds_load_t load(now);
@@ -256,6 +266,8 @@ mds_load_t MDBalancer::get_load(utime_t now)
 	 ++p) {
       load.auth.add(now, mds->mdcache->decayrate, (*p)->pop_auth_subtree_nested);
       load.all.add(now, mds->mdcache->decayrate, (*p)->pop_nested);
+      load.pot_auth.add((*p)->pot_auth);
+      load.pot_all.add((*p)->pot_all);
     }
   } else {
     dout(20) << "get_load no root, no load" << dendl;
@@ -507,6 +519,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         old_req[i] = it->second.req_rate;
         
         load_vector[i] = it->second.auth.meta_load();
+        //load_vector[i] = it->second.auth.meta_load();
         /* mds_load_t &load(it->second);
         no need to get all info?
         metrics[i] = {{"auth.meta_load", load.auth.meta_load()},
@@ -580,19 +593,19 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         set<mds_rank_t> up;
         mds->get_mds_map()->get_up_mds_set(up);
         for (set<mds_rank_t>::iterator p = up.begin(); p != up.end(); ++p) {
-        if (*p == mds->get_nodeid())
-          continue;
+	  if (*p == mds->get_nodeid())
+	    continue;
           vector<migration_decision_t> mds_decision;
 
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end();my_im_it++){
-            if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p])};
-              mds_decision.push_back(temp_decision);
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
-            }
-          }
-          send_ifbeat(*p, imbalance_factor, mds_decision);
+	      if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
+		migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p])};
+		mds_decision.push_back(temp_decision);
+		dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
+	      }
+	    }
+	    send_ifbeat(*p, imbalance_factor, mds_decision);
           }
         }
 
@@ -916,9 +929,9 @@ void MDBalancer::prep_rebalance(int beat)
     // rescale!  turn my mds_load back into meta_load units
     double load_fac = 1.0;
     map<mds_rank_t, mds_load_t>::iterator m = mds_load.find(whoami);
-    if ((m != mds_load.end()) && (m->second.mds_load() > 0)) {
+    if ((m != mds_load.end()) && (calc_mds_load(m->second) > 0)) {
       double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
-      double mdsld = m->second.mds_load();
+      double mdsld = calc_mds_load(m->second);
       load_fac = metald / mdsld;
       dout(7) << " load_fac is " << load_fac
 	      << " <- " << m->second.auth << " " << metald
@@ -939,7 +952,7 @@ void MDBalancer::prep_rebalance(int beat)
       std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
       mds_load_t &load(r.first->second);
 
-      double l = load.mds_load() * load_fac;
+      double l = calc_mds_load(load) * load_fac;
       mds_meta_load[i] = l;
       #ifdef MDS_MONITOR
       dout(7) << " MDS_MONITOR " << __func__ << " (2) mds." << i << " load " << l << dendl;
@@ -947,7 +960,7 @@ void MDBalancer::prep_rebalance(int beat)
       if (whoami == 0)
 	dout(5) << "  mds." << i
 		<< " " << load
-		<< " = " << load.mds_load()
+		<< " = " << calc_mds_load(load)
 		<< " ~ " << l << dendl;
 
       if (whoami == i) my_load = l;
@@ -1822,6 +1835,12 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 
   if (in->get_parent_dn())
     hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
+
+  // hit tracer
+  string fullpath;
+  in->make_path_string(fullpath);
+  if (fullpath == "")	fullpath = "/";
+  req_tracer.hit(fullpath);
 }
 
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
@@ -1935,6 +1954,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   bool hit_subtree = dir->is_auth();         // current auth subtree (if any)
   bool hit_subtree_nested = dir->is_auth();  // all nested auth subtrees
 
+  CDir * origdir = dir;
   while (true) {
     dir->pop_nested.get(type).hit(now, mds->mdcache->decayrate, amount);
     if (rd_adj != 0.0)
@@ -1957,6 +1977,40 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
     if (dir->inode->get_parent_dn() == 0) break;
     dir = dir->inode->get_parent_dn()->get_dir();
+  }
+
+  dir = origdir;
+  // adjust potential load for brother dirfrags
+  auto update_dir_pot = [this](CInode * in) -> void {
+  //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
+    list<CDir *> petals;
+    in->get_dirfrags(petals);
+    int brothers_count = 0;
+    int brothers_auth_count = 0;
+    for (CDir * petal : petals) {
+      brothers_count += petal->get_num_any();
+      if (petal->is_auth())
+	brothers_auth_count += petal->get_num_any();
+    }
+    for (CDir * petal : petals) {
+      petal->pot_all.adjust((double)petal->get_num_any() / brothers_count, beat_epoch);
+      if (petal->is_auth())
+	petal->pot_auth.adjust((double)petal->get_num_any() / brothers_auth_count, beat_epoch);
+    }
+  };
+  update_dir_pot(dir->inode);
+
+  bool update_pot_auth = dir->is_auth();
+  if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
+
+  update_dir_pot(dir->inode->get_parent_dir()->inode);
+
+  while (dir->inode->get_parent_dn()) {
+    dir = dir->inode->get_parent_dn()->get_dir();
+    // adjust ancestors' pot
+    if (update_pot_auth)
+      dir->pot_auth.inc(beat_epoch);
+    dir->pot_all.inc(beat_epoch);
   }
 }
 
@@ -2001,4 +2055,16 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
   if (0 == who) {
     last_epoch_under = 0;
   }
+}
+
+double MDBalancer::calc_mds_load(mds_load_t load)
+{
+  int total = 0;
+  list<CDir *> rootdirs;
+  mds->mdcache->root->get_dirfrags(rootdirs);
+  for (CDir * dir : rootdirs) {
+    total += dir->get_num_dentries_auth_subtree_nested();
+  }
+  pair<double, double> result = req_tracer.alpha_beta("/", total);
+  return load.mds_load(result.first, result.second);
 }

@@ -33,6 +33,7 @@
 
 #include "CInode.h"
 #include "MDSCacheObject.h"
+#include "mds/adsl/mdstypes.h"
 
 class CDentry;
 class MDCache;
@@ -357,6 +358,9 @@ protected:
   dirfrag_load_vec_t pop_nested;
   dirfrag_load_vec_t pop_auth_subtree;
   dirfrag_load_vec_t pop_auth_subtree_nested;
+
+  dirfrag_pot_load_t pot_auth;
+  dirfrag_pot_load_t pot_all;
  
   utime_t last_popularity_sample;
 

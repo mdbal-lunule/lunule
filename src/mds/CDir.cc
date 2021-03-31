@@ -38,6 +38,8 @@
 #include "include/assert.h"
 #include "include/compat.h"
 
+#include "MDBalancer.h"
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
@@ -3381,6 +3383,10 @@ bool CDir::should_split_fast() const
   }
 
   return effective_size > fast_limit;
+}
+
+double CDir::get_load(MDBalancer * bal) {
+  return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CDir, co_dir, mds_co);

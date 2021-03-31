@@ -358,9 +358,6 @@ protected:
   dirfrag_load_vec_t pop_nested;
   dirfrag_load_vec_t pop_auth_subtree;
   dirfrag_load_vec_t pop_auth_subtree_nested;
-
-  dirfrag_pot_load_t pot_auth;
-  dirfrag_pot_load_t pot_all;
  
   utime_t last_popularity_sample;
 
@@ -759,6 +756,12 @@ public:
   ostream& print_db_line_prefix(ostream& out) override;
   void print(ostream& out) override;
   void dump(Formatter *f) const;
+
+protected:
+  dirfrag_pot_load_t pot_auth;
+  dirfrag_pot_load_t pot_all;
+public:
+  double get_load(MDBalancer * bal);
 };
 
 #endif

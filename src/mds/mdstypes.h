@@ -83,6 +83,8 @@ constexpr fs_cluster_id_t FS_CLUSTER_ID_NONE = {-1};
 constexpr fs_cluster_id_t FS_CLUSTER_ID_ANONYMOUS = {0};
 extern const mds_rank_t MDS_RANK_NONE;
 
+class MDBalancer;
+
 class mds_role_t
 {
   public:
@@ -1569,8 +1571,8 @@ struct mds_load_t {
   mds_load_t() : auth(), all() {}
   
   double mds_pop_load();  // defiend in MDBalancer.cc
-  double mds_pot_load(int epoch = -1);  // defiend in MDBalancer.cc
-  double mds_load(double alpha, double beta, int epoch = -1);  // defiend in MDBalancer.cc
+  double mds_pot_load(bool auth = false, int epoch = -1);  // defiend in MDBalancer.cc
+  double mds_load(double alpha, double beta, int epoch = -1, bool is_auth = false, MDBalancer * bal = NULL);  // defiend in MDBalancer.cc
   void encode(bufferlist& bl) const;
   void decode(const utime_t& now, bufferlist::iterator& bl);
   //this one is for dencoder infrastructure
@@ -1699,7 +1701,7 @@ struct keys_and_values
 //for imbalance factor
 struct migration_decision_t {
     mds_rank_t target_import_mds;
-    float target_export_load;
+    double target_export_load;
 
   /*void encode(bufferlist& bl) const {
     ENCODE_START(2, 2, bl);

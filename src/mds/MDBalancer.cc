@@ -1782,7 +1782,7 @@ void MDBalancer::find_exports(CDir *dir,
 void MDBalancer::dynamically_fragment(CDir *dir, double amount){
   if (dir->get_inode()->is_stray() || !dir->is_auth()) return;
   dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(0): " << *dir << dendl;
-  double dir_pop = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+  double dir_pop = dir->get_load(this);
   
   if(dir_pop >amount*0.6){
     dout(0) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
@@ -1800,7 +1800,7 @@ void MDBalancer::dynamically_fragment(CDir *dir, double amount){
    p != dfls.end();
    ++p) {
       CDir *subdir = *p;
-      double sub_dir_pop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+      double sub_dir_pop = subdir->get_load(this);
       sub_dir_total +=sub_dir_pop;
       }
    }
@@ -1837,6 +1837,7 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
   dynamically_fragment(dir, amount);
   
   switch (wlt) {
+    /*
     case WLT_SCAN:
     if(mds->get_nodeid()==0){
       find_exports_coldfirst_trigger(dir, amount, exports, have, target, already_exporting);
@@ -1854,11 +1855,8 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
         find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
       }
       break;
-
+    */
     case WLT_ROOT:
-    total_hot = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-    dout(0) << __func__ << " totalhot: " << total_hot << *dir << dendl;
-    //dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper get root: " << *dir << dendl;
     for (auto it = dir->begin(); it != dir->end(); ++it) {
       CInode *in = it->second->get_linkage()->get_inode();
       if (!in) continue;
@@ -1874,21 +1872,13 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
     }
       break;
     default:
+      if(mds->get_nodeid()==0){
       dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to " << *dir << dendl;
-      for (auto it = dir->begin(); it != dir->end(); ++it) {
-      CInode *in = it->second->get_linkage()->get_inode();
-      if (!in) continue;
-      if (!in->is_dir()) continue;
-      list<CDir*> root_sub_dfls;
-      in->get_dirfrags(root_sub_dfls);
-      for (list<CDir*>::iterator p = root_sub_dfls.begin();p != root_sub_dfls.end();++p) {
-        CDir *subdir = *p;
-        
-        dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper descend: from Other to" << *subdir << dendl;
-        find_exports_wrapper(subdir, amount, exports, have, already_exporting, target);
+      find_exports(dir, amount, exports, have, already_exporting, target);
+      }else{
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to parent: " << *(dir->inode->get_parent_dir()) << dendl;
+        find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
       }
-    }
-      //find_exports(dir, amount, exports, have, already_exporting, target);
       break;
   }
 }

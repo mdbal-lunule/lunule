@@ -652,6 +652,8 @@ void mds_load_t::encode(bufferlist &bl) const {
   ENCODE_START(2, 2, bl);
   ::encode(auth, bl);
   ::encode(all, bl);
+  ::encode(pot_auth, bl);
+  ::encode(pot_all, bl);
   ::encode(req_rate, bl);
   ::encode(cache_hit_rate, bl);
   ::encode(queue_len, bl);
@@ -663,6 +665,8 @@ void mds_load_t::decode(const utime_t &t, bufferlist::iterator &bl) {
   DECODE_START_LEGACY_COMPAT_LEN(2, 2, 2, bl);
   ::decode(auth, t, bl);
   ::decode(all, t, bl);
+  ::decode(pot_auth, bl);
+  ::decode(pot_all, bl);
   ::decode(req_rate, bl);
   ::decode(cache_hit_rate, bl);
   ::decode(queue_len, bl);

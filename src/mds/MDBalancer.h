@@ -27,6 +27,8 @@ using std::map;
 #include "common/Cond.h"
 #include "mds/mdstypes.h"
 
+#include "mds/adsl/ReqTracer.h"
+
 class MDSRank;
 class Message;
 class MHeartbeat;
@@ -183,6 +185,12 @@ private:
 
   // per-epoch state
   double          my_load, target_load;
+
+  friend class CDir;
+  friend class mds_load_t;
+  ReqTracer req_tracer;
+public:
+  double calc_mds_load(mds_load_t load, bool auth = false);
 };
 
 #endif

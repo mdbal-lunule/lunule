@@ -33,6 +33,7 @@
 
 #include "CInode.h"
 #include "MDSCacheObject.h"
+#include "mds/adsl/mdstypes.h"
 
 class CDentry;
 class MDCache;
@@ -367,6 +368,14 @@ protected:
   int num_dentries_auth_subtree;
   int num_dentries_auth_subtree_nested;
 
+  int get_num_dentries_nested() { return num_dentries_nested; }
+  int get_num_dentries_auth_subtree() { return num_dentries_auth_subtree; }
+  int get_num_dentries_auth_subtree_nested() { return num_dentries_auth_subtree_nested; }
+
+  void inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested);
+  void dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested);
+
+  int get_authsubtree_size_slow();
 
   // friends
   friend class Migrator;
@@ -747,6 +756,12 @@ public:
   ostream& print_db_line_prefix(ostream& out) override;
   void print(ostream& out) override;
   void dump(Formatter *f) const;
+
+protected:
+  dirfrag_pot_load_t pot_auth;
+  dirfrag_pot_load_t pot_all;
+public:
+  double get_load(MDBalancer * bal);
 };
 
 #endif

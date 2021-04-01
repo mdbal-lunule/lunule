@@ -1146,6 +1146,8 @@ private:
                             int rval, int stage);
   friend class ValidationContinuation;
   /** @} Scrubbing and fsck */
+public:
+  int get_authsubtree_size_slow();
 };
 
 ostream& operator<<(ostream& out, const CInode::scrub_stamp_info_t& si);

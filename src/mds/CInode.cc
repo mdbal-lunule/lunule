@@ -656,6 +656,11 @@ CDir *CInode::add_dirfrag(CDir *dir)
 
   maybe_export_pin();
 
+  CDir * pdir = get_parent_dir();
+  if (pdir) {
+      pdir->inc_density(dir->get_num_dentries_nested(), dir->get_num_dentries_auth_subtree(), dir->get_num_dentries_auth_subtree_nested());
+  }
+
   return dir;
 }
 
@@ -679,6 +684,11 @@ void CInode::close_dirfrag(frag_t fg)
   // dump any remaining dentries, for debugging purposes
   for (const auto &p : dir->items)
     dout(14) << __func__ << " LEFTOVER dn " << *p.second << dendl;
+
+  CDir * pdir = get_parent_dir();
+  if (pdir) {
+      pdir->dec_density(dir->get_num_dentries_nested(), dir->get_num_dentries_auth_subtree(), dir->get_num_dentries_auth_subtree_nested());
+  }
 
   assert(dir->get_num_ref() == 0);
   delete dir;
@@ -4557,6 +4567,19 @@ bool CInode::is_exportable(mds_rank_t dest) const
   } else {
     return true;
   }
+}
+
+int CInode::get_authsubtree_size_slow()
+{
+  std::list<CDir*> subtrees;
+  get_dirfrags(subtrees);
+  int count = 0;
+  for (CDir * subtree : subtrees) {
+    if (subtree->is_auth()) {
+      count += subtree->get_authsubtree_size_slow();
+    }
+  }
+  return count;
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CInode, co_inode, mds_co);

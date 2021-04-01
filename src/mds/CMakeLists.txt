@@ -38,6 +38,7 @@ set(mds_srcs
   Mantle.cc
   MigratorIPC.cc
   adsl/PathUtil.cc
+  adsl/ReqTracer.cc
   ${CMAKE_SOURCE_DIR}/src/common/TrackedOp.cc
   ${CMAKE_SOURCE_DIR}/src/osdc/Journaler.cc)
 add_library(mds STATIC ${mds_srcs}

@@ -333,6 +333,7 @@ list(APPEND mds_files
   mds/FSMapUser.cc
   mds/inode_backtrace.cc
   mds/mdstypes.cc
+  mds/adsl/mdstypes.cc
   mds/flock.cc)
 
 set(crush_srcs

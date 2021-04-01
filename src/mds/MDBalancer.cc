@@ -36,6 +36,7 @@
 #include <vector>
 #include <map>
 #include <functional>
+
 using std::map;
 using std::vector;
 
@@ -506,6 +507,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2)  ifbeat: Try to calculate IF " << dendl;
       unsigned cluster_size = mds->get_mds_map()->get_num_in_mds();
       
+      
       //vector < map<string, double> > metrics (cluster_size);
       vector <double> IOPSvector(cluster_size);
       vector <double> load_vector(cluster_size);
@@ -545,7 +547,8 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       double avg_IOPS = std::accumulate(std::begin(IOPSvector), std::end(IOPSvector), 0.0)/IOPSvector.size(); 
       double max_IOPS = *max_element(IOPSvector.begin(), IOPSvector.end());
       double sum_quadratic = 0.0;
-      double my_if_threshold = simple_if_threshold/cluster_size;
+      unsigned max_exporter_count = 3;
+      double my_if_threshold = simple_if_threshold/min(cluster_size,max_exporter_count);
       int importer_count = 0;
 
       mds_rank_t max_pos = mds_rank_t(IOPSvector.begin() - max_element(IOPSvector.begin(), IOPSvector.end()));
@@ -577,7 +580,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       importer_count = min(importer_count, 5);
 
       //simple_migration_amount = simple_migration_total_amount / importer_count;
-      simple_migration_amount = 0.15;
+      simple_migration_amount = 0.1;
 
       double stdev_IOPS = sqrt(sum_quadratic/(IOPSvector.size()-1));
       double imbalance_degree = 0.0;
@@ -608,9 +611,9 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
-            for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 2);my_im_it++){
+            for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p])};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),simple_migration_amount};
               mds_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
@@ -623,7 +626,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].my_if>=my_if_threshold){
           vector<migration_decision_t> my_decision;
           int max_importer_count = 0;
-          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 2);my_im_it++){
+          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
               migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count)};
@@ -632,13 +635,12 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
             }
           }
-          
-          //clear old export
-          mds->mdcache->migrator->clear_export_queue();
           simple_determine_rebalance(my_decision);
+          mds->mdcache->migrator->clear_export_queue();
         }
       }else{
       dout(0) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
+      mds->mdcache->migrator->clear_export_queue();
       }
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3)  ifbeat: No enough MDSload to calculate IF, skip " << dendl;
@@ -647,13 +649,12 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
     double get_if_value = m->get_IFvaule();
     if(get_if_value>=simple_if_threshold){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
-
-      //clear old export
-      mds->mdcache->migrator->clear_export_queue();
       simple_determine_rebalance(m->get_decision());
+      mds->mdcache->migrator->clear_export_queue();
 
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is low: " << m->get_IFvaule() << dendl;
+      mds->mdcache->migrator->clear_export_queue();
     }
   }
 
@@ -1216,7 +1217,9 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
 
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
-    double ex_load = it.target_export_load;
+    //double ex_load = it.target_export_load;
+    double ex_load = it.target_export_percent *mds->mdcache->get_root().get_load();
+
     dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << ex_load << " load to " << target << dendl;
     
     set<CDir*> candidates;
@@ -1225,6 +1228,8 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
     double have = 0.0;
     for (set<CDir*>::iterator pot = candidates.begin(); pot != candidates.end(); ++pot) {
       if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
+      
+      //find_exports(*pot, ex_load, exports, have, already_exporting);
       find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
       if(have>= 0.8*ex_load )break;
       //if (have > amount-MIN_OFFLOAD)break;
@@ -1631,8 +1636,6 @@ void MDBalancer::find_exports(CDir *dir,
                               set<CDir*>& already_exporting,
 			      mds_rank_t target)
 {
-
-  dynamically_fragment(dir, amount);
   
   dout(0) << " [WAN]: old export was happen " << dendl;
   double need = amount - have;
@@ -1739,6 +1742,12 @@ void MDBalancer::find_exports(CDir *dir,
   for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
        ++it) {
+  dynamically_fragment(*it, amount);
+  }
+
+  for (list<CDir*>::iterator it = bigger_unrep.begin();
+       it != bigger_unrep.end();
+       ++it) {
     #ifdef MDS_MONITOR
   dout(7) << " MDS_MONITOR " << __func__ << "(4) descending into bigger DIR " << **it << dendl;
   #endif
@@ -1782,10 +1791,14 @@ void MDBalancer::find_exports(CDir *dir,
 
 
 void MDBalancer::dynamically_fragment(CDir *dir, double amount){
+  if( !dir || !dir->get_inode() || amount <= 10){
+    dout(0) << __func__ << " is NULL! " << *dir  << " or amount to low: " << amount << dendl;
+    return;
+  }
+
   if (dir->get_inode()->is_stray() || !dir->is_auth()) return;
   dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(0): " << *dir << dendl;
   double dir_pop = dir->get_load(this);
-  
   if(dir_pop >amount*0.6){
     dout(0) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
     double sub_dir_total = 0;
@@ -1836,7 +1849,7 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
   WorkloadType wlt = adsl::workload2type(adsl::g_matcher.match(s));
   dout(0) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
   
-  dynamically_fragment(dir, amount);
+  //dynamically_fragment(dir, amount);
   
   switch (wlt) {
     /*
@@ -1859,7 +1872,9 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
       break;
     */
     case WLT_ROOT:
-    for (auto it = dir->begin(); it != dir->end(); ++it) {
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Root: diving to " << *dir << dendl;
+      find_exports(dir, amount, exports, have, already_exporting, target);
+    /*for (auto it = dir->begin(); it != dir->end(); ++it) {
       CInode *in = it->second->get_linkage()->get_inode();
       if (!in) continue;
       if (!in->is_dir()) continue;
@@ -1871,15 +1886,21 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
         dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper descend: from root to" << *subdir << dendl;
         find_exports_wrapper(subdir, amount, exports, have, already_exporting, target);
       }
-    }
+    }*/
       break;
     default:
       if(mds->get_nodeid()==0){
-      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to " << *dir << dendl;
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown-MDS0: diving to " << *dir << dendl;
       find_exports(dir, amount, exports, have, already_exporting, target);
       }else{
-      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to parent: " << *(dir->inode->get_parent_dir()) << dendl;
+      if (dir->inode->get_parent_dir())
+      {
+        dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown-MDS not 0: diving to parent: " << *(dir->inode->get_parent_dir()) << dendl;
         find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
+      }else{
+        dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown-MDS not 0: no parent: " << *dir << dendl;
+        find_exports(dir, amount, exports, have, already_exporting, target);
+      }
       }
       break;
   }
@@ -1904,7 +1925,7 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
 {
-  dout(0) << __func__ << " split " << *dir << dendl;
+  //dout(0) << __func__ << " split " << *dir << dendl;
   dout(20) << __func__ << dendl;
   // split/merge
   if (g_conf->mds_bal_frag && g_conf->mds_bal_fragment_interval > 0 &&

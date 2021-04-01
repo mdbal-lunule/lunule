@@ -1702,6 +1702,7 @@ struct keys_and_values
 struct migration_decision_t {
     mds_rank_t target_import_mds;
     double target_export_load;
+    double target_export_percent;
 
   /*void encode(bufferlist& bl) const {
     ENCODE_START(2, 2, bl);

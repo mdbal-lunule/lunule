@@ -77,6 +77,9 @@ public:
    * \param hot whether the directory's temperature is enough to split it
    */
   void maybe_fragment(CDir *dir, bool hot);
+  
+  // try to dynamically split dir
+  void dynamically_fragment(CDir *dir, double amount);
 
   void handle_mds_failure(mds_rank_t who);
 
@@ -94,6 +97,7 @@ private:
     mds_rank_t whoami;
     bool is_bigger;
   }imbalance_summary_t;
+  static bool sortImporter (imbalance_summary_t i,imbalance_summary_t j) { return (i.my_if > j.my_if); };
 
   //set up the rebalancing targets for export and do one if the
   //MDSMap is up to date
@@ -101,7 +105,6 @@ private:
   int mantle_prep_rebalance();
 
   void handle_export_pins(void);
-
   void export_empties();
   int localize_balancer();
   void send_heartbeat();

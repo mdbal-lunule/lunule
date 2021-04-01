@@ -11,12 +11,18 @@ adsl::WL_Matcher::WL_Matcher()
 {
 	insert("ai", "/ai");
 	insert("tar", "/tar/");
+	insert("tar_0", "/tar_0/");
+	insert("tar_1", "/tar_1/");
+	insert("tar_2", "/tar_2/");
+	insert("tar_3", "/tar_3/");
+	insert("tar_4", "/tar_4/");
 	insert("ycsb-zipfian", "/ycsbzipf");
 	insert("web", "/web");
 	insert("fb-create", "/filebench/fb_create");
 	insert("fb-lsdir", "/filebench/fb_lsdir");
 	insert("fb-stat", "/filebench/fb_stat");
 	insert("fb-zipfian", "/filebench/fb_zipfian/");
+	insert("test", "/test");
 }
 
 string adsl::WL_Matcher::match(string path)
@@ -51,12 +57,19 @@ map<string, int> adsl::req2workload(map<string, int> & reqs)
 
 WorkloadType adsl::workload2type(string typestr)
 {
-	if (typestr == "ai" || typestr == "tar" || typestr == "fb-lsdir" || typestr == "fb-stat") {
+	/*if (typestr == "tar" || typestr == "tar_0"|| typestr == "tar_1"|| typestr == "tar_2"|| typestr == "tar_3"|| typestr == "tar_4" || typestr == "fb-lsdir" || typestr == "fb-stat") {
 		return WLT_SCAN;
 	}
-	else if (typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
+	else if (typestr == "ai" || typestr == "web" || typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
+		return WLT_ZIPF;
+	}*/
+	if (typestr == "ai" ||typestr == "tar" || typestr == "tar_0"|| typestr == "tar_1"|| typestr == "tar_2"|| typestr == "tar_3"|| typestr == "tar_4" || typestr == "fb-lsdir" || typestr == "fb-stat") {
+		return WLT_SCAN;
+	}
+	else if (typestr == "web" || typestr == "test" ||  typestr == "ycsb-zipfian" || typestr == "fb-zipfian" || typestr == "fb-create") {
 		return WLT_ZIPF;
 	}
+	
 	else if (typestr == "root")
 	{
 		return WLT_ROOT;

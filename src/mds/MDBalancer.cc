@@ -69,6 +69,8 @@ using std::vector;
 #define MIN_REEXPORT 5  // will automatically reexport
 #define MIN_OFFLOAD 10   // point at which i stop trying, close enough
 
+#define COLDFIRST_DEPTH 2
+
 /* This function DOES put the passed message before returning */
 
 #define LUNULE_DEBUG_LEVEL 7
@@ -539,6 +541,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       //ok I know all IOPS, know get to calculateIF
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) get IOPS: " << IOPSvector << " load: "<< load_vector << dendl;
       
+      double avg_load = std::accumulate(std::begin(load_vector), std::end(load_vector), 0.0)/load_vector.size(); 
       double avg_IOPS = std::accumulate(std::begin(IOPSvector), std::end(IOPSvector), 0.0)/IOPSvector.size(); 
       double max_IOPS = *max_element(IOPSvector.begin(), IOPSvector.end());
       double sum_quadratic = 0.0;
@@ -594,7 +597,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       
 
       if(imbalance_factor>=simple_if_threshold){
-        dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.1) imbalance_factor is high enough: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << " start to send " << dendl;
+        dout(0) << " MDS_IFBEAT " << __func__ << " (2.1) imbalance_factor is high enough: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << " start to send " << dendl;
         
         set<mds_rank_t> up;
         mds->get_mds_map()->get_up_mds_set(up);
@@ -602,7 +605,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
 	  if (*p == mds->get_nodeid())
 	    continue;
           vector<migration_decision_t> mds_decision;
-
+          std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 2);my_im_it++){
@@ -620,9 +623,10 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].my_if>=my_if_threshold){
           vector<migration_decision_t> my_decision;
           int max_importer_count = 0;
-          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 4);my_im_it++){
+          for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < 2);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
+              //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count)};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
@@ -634,7 +638,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           simple_determine_rebalance(my_decision);
         }
       }else{
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
+      dout(0) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
       }
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3)  ifbeat: No enough MDSload to calculate IF, skip " << dendl;
@@ -1413,7 +1417,7 @@ void MDBalancer::try_rebalance(balance_state_t& state)
 
       #ifdef MDS_COLDFIRST_BALANCER
       //find_exports_coldfirst_trigger(*pot, amount, exports, have, target, already_exporting);
-      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, 10);
+      find_exports_coldfirst(*pot, amount, exports, have, already_exporting, target, COLDFIRST_DEPTH);
       #else
       find_exports(*pot, amount, exports, have, already_exporting);
       #endif
@@ -1469,7 +1473,7 @@ void MDBalancer::find_exports_coldfirst_trigger(CDir *dir,
   dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " find dominator in " << *dir << " pop " << dir_pop << " amount " << amount << " have " << have << " need " << need << dendl;
   
   if (dir_pop > amount*0.05 ) {
-  find_exports_coldfirst(dir, amount, exports, have, already_exporting, dest, 10);
+  find_exports_coldfirst(dir, amount, exports, have, already_exporting, dest, COLDFIRST_DEPTH);
   }
 
 
@@ -1579,8 +1583,11 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
       //dout(1) << " subdir pop " << pop << " " << *subdir << dendl;
 
       //frag_mod_dest = int(subdir->get_frag().value())%cluster_size;
-      hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
-
+      
+      //frag hash
+      //hash_frag = hash_frag_func(subdir->ino().val + subdir->get_frag().value());
+      //directory hash
+      hash_frag = hash_frag_func(subdir->ino().val);
       //frag_mod_dest = (hash_frag%(2*cluster_size-1) + 1)/2;
       frag_mod_dest = hash_frag%cluster_size;
       dout(LUNULE_DEBUG_LEVEL) << " MDS_COLD " << __func__ << " subdir: " << *subdir << " frag: " << subdir->dirfrag() << " hash_frag: " << hash_frag << " frag_mod_dest: " << frag_mod_dest <<  " target: " << dest << dendl; 
@@ -1624,6 +1631,9 @@ void MDBalancer::find_exports(CDir *dir,
                               set<CDir*>& already_exporting,
 			      mds_rank_t target)
 {
+
+  dynamically_fragment(dir, amount);
+  
   dout(0) << " [WAN]: old export was happen " << dendl;
   double need = amount - have;
   if (need < amount * g_conf->mds_bal_min_start)
@@ -1770,6 +1780,48 @@ void MDBalancer::find_exports(CDir *dir,
 
 }
 
+
+void MDBalancer::dynamically_fragment(CDir *dir, double amount){
+  if (dir->get_inode()->is_stray() || !dir->is_auth()) return;
+  dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(0): " << *dir << dendl;
+  double dir_pop = dir->get_load(this);
+  
+  if(dir_pop >amount*0.6){
+    dout(0) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
+    double sub_dir_total = 0;
+    for (auto it = dir->begin(); it != dir->end(); ++it) {
+    CInode *in = it->second->get_linkage()->get_inode();
+    if (!in) continue;
+    if (!in->is_dir()) continue;
+    dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(1): I'm " << *in << dendl;
+
+    list<CDir*> dfls;
+
+    in->get_dirfrags(dfls);
+    for (list<CDir*>::iterator p = dfls.begin();
+   p != dfls.end();
+   ++p) {
+      CDir *subdir = *p;
+      double sub_dir_pop = subdir->get_load(this);
+      sub_dir_total +=sub_dir_pop;
+      }
+   }
+  double file_hot_ratio = 1-sub_dir_total/dir_pop;
+  if(file_hot_ratio >=0.5){
+    dout(0) << __func__ << " dynamically (2) file_access_hotspot " << file_hot_ratio << " find in " << *dir << dendl;
+    maybe_fragment(dir,true);
+  }
+  dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(3) I'm" << *dir << " my_pop: " << dir_pop << " my_sub_pop: " << sub_dir_total << dendl;
+
+
+  }else{
+    return;
+  }
+
+   
+
+}
+
 void MDBalancer::find_exports_wrapper(CDir *dir,
                     double amount,
                     list<CDir*>& exports,
@@ -1777,15 +1829,22 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
                     set<CDir*>& already_exporting,
 		    mds_rank_t target)
 {
+  if(dir->inode->is_stray())return;
+  double total_hot = 0;
   string s;
   dir->get_inode()->make_path_string(s);
   WorkloadType wlt = adsl::workload2type(adsl::g_matcher.match(s));
-  dout(LUNULE_DEBUG_LEVEL) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  dout(0) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  
+  dynamically_fragment(dir, amount);
   
   switch (wlt) {
+    /*
     case WLT_SCAN:
     if(mds->get_nodeid()==0){
       find_exports_coldfirst_trigger(dir, amount, exports, have, target, already_exporting);
+    }else{
+      find_exports_coldfirst_trigger(dir->inode->get_parent_dir(), amount, exports, have, target, already_exporting);
     }
       break;
 
@@ -1798,9 +1857,8 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
         find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
       }
       break;
-
+    */
     case WLT_ROOT:
-    //dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper get root: " << *dir << dendl;
     for (auto it = dir->begin(); it != dir->end(); ++it) {
       CInode *in = it->second->get_linkage()->get_inode();
       if (!in) continue;
@@ -1816,21 +1874,13 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
     }
       break;
     default:
+      if(mds->get_nodeid()==0){
       dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to " << *dir << dendl;
-      for (auto it = dir->begin(); it != dir->end(); ++it) {
-      CInode *in = it->second->get_linkage()->get_inode();
-      if (!in) continue;
-      if (!in->is_dir()) continue;
-      list<CDir*> root_sub_dfls;
-      in->get_dirfrags(root_sub_dfls);
-      for (list<CDir*>::iterator p = root_sub_dfls.begin();p != root_sub_dfls.end();++p) {
-        CDir *subdir = *p;
-        
-        dout(LUNULE_DEBUG_LEVEL) << __func__ << " warrper descend: from Other to" << *subdir << dendl;
-        find_exports_wrapper(subdir, amount, exports, have, already_exporting, target);
+      find_exports(dir, amount, exports, have, already_exporting, target);
+      }else{
+      dout(LUNULE_DEBUG_LEVEL) << __func__ << " Unknown: diving to parent: " << *(dir->inode->get_parent_dir()) << dendl;
+        find_exports(dir->inode->get_parent_dir(), amount, exports, have, already_exporting, target);
       }
-    }
-      //find_exports(dir, amount, exports, have, already_exporting, target);
       break;
   }
 }
@@ -1851,8 +1901,10 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
   req_tracer.hit(fullpath);
 }
 
+
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
 {
+  dout(0) << __func__ << " split " << *dir << dendl;
   dout(20) << __func__ << dendl;
   // split/merge
   if (g_conf->mds_bal_frag && g_conf->mds_bal_fragment_interval > 0 &&
@@ -1897,7 +1949,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   dout(20) << "hit_dir " << dir->get_path() << " " << type << " pop is " << v << ", frag " << dir->get_frag()
            << " size " << dir->get_frag_size() << dendl;
 
-  maybe_fragment(dir, hot);
+  //maybe_fragment(dir, hot);
 
   // replicate?
   if (type == META_POP_IRD && who >= 0) {

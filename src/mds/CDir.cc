@@ -3386,7 +3386,11 @@ bool CDir::should_split_fast() const
 }
 
 double CDir::get_load(MDBalancer * bal) {
-  return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
+  //return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
+  double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
+  double pot = pot_auth.pot_load(bal->beat_epoch);
+  dout(7) << "CDir::get_load dir " << *this << " pop " << pop << " pot " << pot << dendl;
+  return pop + pot;
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CDir, co_dir, mds_co);

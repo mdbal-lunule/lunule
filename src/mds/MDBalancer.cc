@@ -1218,7 +1218,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
-    double ex_load = it.target_export_percent *mds->mdcache->get_root()->get_load();
+    double ex_load = it.target_export_percent * calc_mds_load(get_load(rebalance_time), true);
 
     dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << ex_load << " load to " << target << dendl;
     

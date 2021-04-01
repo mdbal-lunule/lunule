@@ -6,19 +6,26 @@
 #include "include/encoding.h"
 
 struct dirfrag_pot_load_t {
-  double value;
+  double value; // for last epoch
+  double last_value; // for this epoch
   int last_epoch;
-  dirfrag_pot_load_t() : value(0.0), last_epoch(-1) {}
+  dirfrag_pot_load_t() : value(0.0), last_value(0.0), last_epoch(-1) {}
   void _update_epoch(int epoch);
   void inc(int epoch);
   void adjust(double adj, int epoch);
   void add(dirfrag_pot_load_t & anotherpot);
+  void clear(int epoch);
 
-  double pot_load(int epoch = -1);
+  double pot_load(int epoch = -1, bool use_current = false);
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator & bl);
 };
 WRITE_CLASS_ENCODER(dirfrag_pot_load_t)
+
+inline std::ostream& operator<<( std::ostream& out, dirfrag_pot_load_t& load )
+{
+  return out << "pot<" << load.last_value << ',' << load.value << ',' << load.last_epoch << '>';
+}
 
 // --- DEPRECATED ---
 /*

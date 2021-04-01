@@ -181,41 +181,75 @@ ostream& CDir::print_db_line_prefix(ostream& out)
 
 // -------------------------------------------------------------------
 // CDir
-void CDir::inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+void CDir::_maybe_update_epoch(int epoch)
 {
+  if (epoch > beat_epoch) {
+    beat_epoch = epoch;
+    num_dentries_auth_subtree_nested = get_authsubtree_size_slow(epoch);
+  }
+}
+
+int CDir::get_num_dentries_nested(int epoch)
+{
+  _maybe_update_epoch(epoch);
+  return num_dentries_nested;
+}
+
+int CDir::get_num_dentries_auth_subtree(int epoch)
+{ 
+  _maybe_update_epoch(epoch);
+  return num_dentries_auth_subtree;
+}
+
+int CDir::get_num_dentries_auth_subtree_nested(int epoch)
+{
+  _maybe_update_epoch(epoch);
+  return num_dentries_auth_subtree_nested;
+}
+
+void CDir::inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch)
+{
+  _maybe_update_epoch(epoch);
   this->num_dentries_nested += num_dentries_nested;
   this->num_dentries_auth_subtree += num_dentries_auth_subtree;
   this->num_dentries_auth_subtree_nested += num_dentries_auth_subtree_nested;
   
   CDir * pdir = get_parent_dir();
   if (pdir) {
-    pdir->inc_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+    pdir->inc_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested, epoch);
   }
 }
 
-void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch)
 {
+  _maybe_update_epoch(epoch);
   this->num_dentries_nested -= num_dentries_nested;
   this->num_dentries_auth_subtree -= num_dentries_auth_subtree;
   this->num_dentries_auth_subtree_nested -= num_dentries_auth_subtree_nested;
   
   CDir * pdir = get_parent_dir();
   if (pdir) {
-    pdir->dec_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+    pdir->dec_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested, epoch);
   }
 }
 
-int CDir::get_authsubtree_size_slow()
+int CDir::get_authsubtree_size_slow(int epoch)
 {
-  int count = 0;
+  if (epoch <= beat_epoch)	return num_dentries_auth_subtree_nested;
+
+  beat_epoch = epoch;
+
+  // calculate
+  num_dentries_auth_subtree_nested = 0;
   for (auto it = items.begin(); it != items.end(); it++) {
     CDentry::linkage_t * linkage = it->second->get_linkage();
     // We do not care about null (only name) and remote (Inode on another MDS) dentries
     if (linkage->is_primary()) {
-      count += linkage->get_inode()->get_authsubtree_size_slow();
+      num_dentries_auth_subtree_nested += linkage->get_inode()->get_authsubtree_size_slow(epoch);
     }
   }
-  return count;
+  num_dentries_auth_subtree_nested += items.size();
+  return num_dentries_auth_subtree_nested;
 }
 
 CDir::CDir(CInode *in, frag_t fg, MDCache *mdcache, bool auth) :
@@ -3385,8 +3419,35 @@ bool CDir::should_split_fast() const
   return effective_size > fast_limit;
 }
 
-double CDir::get_load(MDBalancer * bal) {
-  return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
+double CDir::get_load(MDBalancer * bal)
+{
+  _maybe_update_epoch(bal->beat_epoch);
+  //return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
+  string s;
+  inode->make_path_string(s);
+  vector<string> betastrs;
+  pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested, betastrs);
+  double alpha = alpha_beta.first;
+  double beta = alpha_beta.second;
+  double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
+  //double pop = pop_auth.pot_load(bal->beat_epoch);
+  double pot = pot_auth.pot_load(bal->beat_epoch);
+  dout(7) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " pop " << pop << " pot " << pot << dendl;
+  if (beta < 0) {
+    dout(0) << __func__ << " Illegal beta detected: subtree path=" << s << " size=" << num_dentries_auth_subtree_nested << " betacnt=" << betastrs.size() << dendl;
+    dout(0) << __func__ << "  Subtrees:" << dendl;
+    for (auto it = items.begin(); it != items.end(); it++) {
+      CDentry * de = it->second;
+      string curpath;
+      de->make_path_string(curpath);
+      dout(0) << __func__ << "   " << curpath << dendl;
+    }
+    dout(0) << __func__ << "  Visits:" << dendl;
+    for (string s : betastrs) {
+      dout(0) << __func__ << "   " << s << dendl;
+    }
+  }
+  return alpha * pop + beta * pot;
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CDir, co_dir, mds_co);

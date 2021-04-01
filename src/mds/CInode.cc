@@ -4569,17 +4569,69 @@ bool CInode::is_exportable(mds_rank_t dest) const
   }
 }
 
-int CInode::get_authsubtree_size_slow()
+int CInode::get_authsubtree_size_slow(int epoch)
 {
+  if (epoch % 3 == 0 || maybe_update_epoch(epoch) <= 0)
+    return subtree_size;
+
   std::list<CDir*> subtrees;
   get_dirfrags(subtrees);
-  int count = 0;
+  subtree_size = 0;
   for (CDir * subtree : subtrees) {
     if (subtree->is_auth()) {
-      count += subtree->get_authsubtree_size_slow();
+      subtree_size += subtree->get_authsubtree_size_slow(epoch);
     }
   }
-  return count;
+  //dout(0) << __func__ << " epoch=" << epoch << " name=" << (parent ? parent->name : "root") << " subtreesize=" << subtree_size << dendl;
+  return subtree_size;
+}
+
+inline int CInode::maybe_update_epoch(int epoch)
+{
+  int ret = epoch - beat_epoch;
+  if (epoch > beat_epoch) {
+    hitcount.switch_epoch(epoch - beat_epoch);
+    last_newoldhit[0] = newoldhit[0];
+    last_newoldhit[1] = newoldhit[1];
+    newoldhit[0] = newoldhit[1] = 0;
+    beat_epoch = epoch;
+  }
+  return ret;
+}
+
+int CInode::hit(bool check_epoch, int epoch)
+{
+  if (check_epoch && maybe_update_epoch(epoch) < 0)
+    return -2;
+
+  if (!is_auth())
+    return -2;
+  
+  int newold = hitcount.hit();
+  if (newold < 0)	return newold;
+  newoldhit[newold]++;
+
+  CInode * in = this;
+  while (in->get_parent_dn()) {
+    in = in->get_parent_dn()->get_dir()->get_inode();
+    in->newoldhit[newold]++;
+    //if (!in->is_auth())	break;
+  }
+  dout(0) << "CInode::hit Root old=" << mdcache->get_root()->newoldhit[0] << " new=" << mdcache->get_root()->newoldhit[1] << dendl;
+  return newold;
+}
+
+pair<double, double> CInode::alpha_beta(int epoch)
+{
+  // calculate subtree size
+  int subtree_size = get_authsubtree_size_slow(epoch);
+  maybe_update_epoch(epoch);
+  int oldcnt = last_newoldhit[0], newcnt = last_newoldhit[1];
+  int total = oldcnt + newcnt;
+  double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
+  double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
+  //dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
+  return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CInode, co_inode, mds_co);

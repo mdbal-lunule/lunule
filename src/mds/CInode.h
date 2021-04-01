@@ -40,6 +40,8 @@
 #include "SnapRealm.h"
 #include "Mutation.h"
 
+#include "adsl/ReqCounter.h"
+
 #define dout_context g_ceph_context
 
 class Context;
@@ -631,6 +633,15 @@ public:
   int auth_pin_freeze_allowance = 0;
 
   inode_load_vec_t pop;
+  ReqCounter hitcount;
+  int newoldhit[2];
+  int last_newoldhit[2];
+  int subtree_size;
+  int beat_epoch;
+
+  inline int maybe_update_epoch(int epoch = -1);
+  int hit(bool check_epoch = false, int epoch = -1);
+  pair<double, double> alpha_beta(int epoch = -1);
 
   // friends
   friend class Server;
@@ -654,6 +665,8 @@ public:
     item_dirty_dirfrag_nest(this), 
     item_dirty_dirfrag_dirfragtree(this), 
     pop(ceph_clock_now()),
+    subtree_size(0),
+    beat_epoch(-1),
     versionlock(this, &versionlock_type),
     authlock(this, &authlock_type),
     linklock(this, &linklock_type),
@@ -666,6 +679,8 @@ public:
     policylock(this, &policylock_type)
   {
     if (auth) state_set(STATE_AUTH);
+    newoldhit[0] = newoldhit[1] = 0;
+    last_newoldhit[0] = last_newoldhit[1] = 0;
   }
   ~CInode() override {
     close_dirfrags();
@@ -1147,7 +1162,7 @@ private:
   friend class ValidationContinuation;
   /** @} Scrubbing and fsck */
 public:
-  int get_authsubtree_size_slow();
+  int get_authsubtree_size_slow(int epoch = -1);
 };
 
 ostream& operator<<(ostream& out, const CInode::scrub_stamp_info_t& si);

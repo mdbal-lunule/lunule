@@ -256,7 +256,8 @@ double mds_load_t::mds_pot_load(bool auth, int epoch)
 double mds_load_t::mds_load(double alpha, double beta, int epoch, bool is_auth, MDBalancer * bal)
 {
   if (is_auth)
-    return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_auth.pot_load(epoch);
+    //return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_auth.pot_load(epoch);
+    return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_all.pot_load(epoch);
   else
     return alpha * mds_pop_load() + beta * mds_pot_load(epoch);
 }
@@ -397,6 +398,8 @@ void MDBalancer::send_heartbeat()
 
   if (mds->get_nodeid() == 0) {
     beat_epoch++;
+
+    req_tracer.switch_epoch();
    
     mds_load.clear();
   }
@@ -694,6 +697,8 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
     }
     beat_epoch = m->get_beat();
     send_heartbeat();
+
+    //req_tracer.switch_epoch();
 
     vector<migration_decision_t> empty_decision;
     send_ifbeat(0, -1, empty_decision);
@@ -1834,17 +1839,13 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
 
 void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 {
-  // hit inode
+  // hit inode pop and count
   in->pop.get(type).hit(now, mds->mdcache->decayrate);
+  int newold = in->hit(true, beat_epoch);
 
-  if (in->get_parent_dn())
-    hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
-
-  // hit tracer
-  string fullpath;
-  in->make_path_string(fullpath);
-  if (fullpath == "")	fullpath = "/";
-  req_tracer.hit(fullpath);
+  if (in->get_parent_dn()) {
+    hit_dir(now, in->get_parent_dn()->get_dir(), type, who, 1.0, newold);
+  }
 }
 
 void MDBalancer::maybe_fragment(CDir *dir, bool hot)
@@ -1881,7 +1882,54 @@ void MDBalancer::maybe_fragment(CDir *dir, bool hot)
   }
 }
 
-void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amount)
+//auto update_dir_pot_recur = [this] (CDir * dir, int level, double adj_auth_pot = 1.0, double adj_all_pot = 1.0) -> void {
+void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot, double adj_all_pot)
+{
+  string s = "/";
+  if (dir->inode->get_parent_dn())
+    dir->inode->make_path_string(s);
+  dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
+
+  // adjust myself
+  dir->pot_all.adjust(adj_all_pot, beat_epoch);
+  if (dir->is_auth())
+    dir->pot_auth.adjust(adj_auth_pot, beat_epoch);
+
+  int brocount = 0;
+  if (level <= 0)	goto finish;
+
+  for (auto it = dir->begin(); it != dir->end(); it++)
+    brocount += dir->get_authsubtree_size_slow(beat_epoch);
+  for (auto it = dir->begin(); it != dir->end(); it++) {
+    int my_subtree_size = dir->get_authsubtree_size_slow(beat_epoch);
+    double my_adj_auth_pot = adj_auth_pot * my_subtree_size / brocount;
+    double my_adj_all_pot = adj_all_pot * my_subtree_size / brocount;
+    CDentry::linkage_t * de_l = it->second->get_linkage();
+    if (de_l && de_l->is_primary()) {
+      CInode * in = de_l->get_inode();
+      list<CDir *> petals;
+      in->get_dirfrags(petals);
+      int brothers_count = 0;
+      int brothers_auth_count = 0;
+      for (CDir * petal : petals) {
+        brothers_count += petal->get_num_any();
+        if (petal->is_auth())
+          brothers_auth_count += petal->get_num_any();
+      }
+      double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
+      double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
+      for (CDir * petal : petals) {
+        update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+      }
+    }
+  }
+
+finish:
+  dout(0) << __func__ << " after adjust, path=" << s << " level=" << level << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
+}
+
+
+void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amount, int newold)
 {
   // hit me
   double v = dir->pop_me.get(type).hit(now, mds->mdcache->decayrate, amount);
@@ -1983,10 +2031,23 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     dir = dir->inode->get_parent_dn()->get_dir();
   }
 
+  if (newold < 1)	return;
+
   dir = origdir;
+  dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
+  //CDentry* dn = dir->get_inode()->get_parent_dn();
+  //dout(0) << __func__ << " DEBUG2 dir=" << (dn ? dn->get_name() : "/") << dendl;
   // adjust potential load for brother dirfrags
-  auto update_dir_pot = [this](CInode * in) -> void {
-  //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
+  auto update_dir_pot = [this](CDir * dir, int level = 0) -> bool {
+    CInode * in = dir->inode;
+    int i;
+    for (i = 0; i < level; i++) {
+      if (!in->get_parent_dn())	break;
+      in = in->get_parent_dn()->get_dir()->get_inode();
+    }
+    bool ret = (i == level);
+    level = i;
+
     list<CDir *> petals;
     in->get_dirfrags(petals);
     int brothers_count = 0;
@@ -1996,26 +2057,49 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
       if (petal->is_auth())
 	brothers_auth_count += petal->get_num_any();
     }
-    for (CDir * petal : petals) {
-      petal->pot_all.adjust((double)petal->get_num_any() / brothers_count, beat_epoch);
-      if (petal->is_auth())
-	petal->pot_auth.adjust((double)petal->get_num_any() / brothers_auth_count, beat_epoch);
+
+    dir->pot_cached.inc(beat_epoch);
+    double cached_load = dir->pot_cached.pot_load(beat_epoch, true);
+    if (cached_load < brothers_auth_count) {
+      return false;
     }
+    dir->pot_cached.clear(beat_epoch);
+    
+    double adj_auth_single = brothers_auth_count ? (cached_load / brothers_auth_count) : 0.0;
+    double adj_all_single = brothers_count ? (cached_load / brothers_count) : 0.0;
+    for (CDir * petal : petals) {
+      update_dir_pot_recur(petal, level, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+    }
+    return ret;
   };
-  update_dir_pot(dir->inode);
 
   bool update_pot_auth = dir->is_auth();
-  if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
+  //if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
+  if (!dir->inode->get_parent_dn()) {
+    update_dir_pot(dir);
+    return;
+  }
 
-  update_dir_pot(dir->inode->get_parent_dir()->inode);
+  if (update_dir_pot(dir, 1))
+    dir = dir->inode->get_parent_dn()->get_dir();
 
   while (dir->inode->get_parent_dn()) {
     dir = dir->inode->get_parent_dn()->get_dir();
     // adjust ancestors' pot
     if (update_pot_auth)
       dir->pot_auth.inc(beat_epoch);
+    //dir->pot_auth.inc(beat_epoch);
     dir->pot_all.inc(beat_epoch);
   }
+
+  //set<CDir *> authsubs;
+  //mds->mdcache->get_auth_subtrees(authsubs);
+  //dout(0) << __func__ << " authsubtrees:" << dendl;
+  //for (CDir * dir : authsubs) {
+  //  string s;
+  //  dir->get_inode()->make_path_string(s);
+  //  dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
+  //}
 }
 
 
@@ -2063,14 +2147,19 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
-  int total = 0;
-  list<CDir *> rootdirs;
-  if (mds->mdcache->root) {
-    mds->mdcache->root->get_dirfrags(rootdirs);
-    for (CDir * dir : rootdirs) {
-      total += dir->get_num_dentries_auth_subtree_nested();
-    }
-  }
-  pair<double, double> result = req_tracer.alpha_beta("/", total);
-  return load.mds_load(result.first, result.second, beat_epoch, auth, this);
+  if (!mds->mdcache->root)
+    return 0.0;
+
+  //vector<string> betastrs;
+  //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
+  pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
+  double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
+  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  //if (result.second < 0) {
+  //  dout(7) << __func__ << " Illegal beta detected" << dendl;
+  //  for (string s : betastrs) {
+  //    dout(7) << __func__ << "   " << s << dendl;
+  //  }
+  //}
+  return ret;
 }

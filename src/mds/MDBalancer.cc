@@ -2129,9 +2129,11 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
   int total = 0;
   list<CDir *> rootdirs;
-  mds->mdcache->root->get_dirfrags(rootdirs);
-  for (CDir * dir : rootdirs) {
-    total += dir->get_num_dentries_auth_subtree_nested();
+  if (mds->mdcache->root) {
+    mds->mdcache->root->get_dirfrags(rootdirs);
+    for (CDir * dir : rootdirs) {
+      total += dir->get_num_dentries_auth_subtree_nested();
+    }
   }
   pair<double, double> result = req_tracer.alpha_beta("/", total);
   return load.mds_load(result.first, result.second, beat_epoch, auth, this);

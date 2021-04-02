@@ -60,7 +60,8 @@ public:
 
   void encode_payload(uint64_t features) override {
     for (vector<migration_decision_t>::iterator it = my_decision.begin();it!=my_decision.end();it++){
-      decision_map[(*it).target_import_mds]=(*it).target_export_load;
+      decision_map[(*it).target_import_mds]=(*it).target_export_percent;
+      decision_map[(*it).target_import_mds]=(*it).target_export_percent;
     }
 
     ::encode(load, payload);
@@ -78,7 +79,7 @@ public:
     ::decode(decision_map, p);
     for(map<mds_rank_t, double>::iterator it = decision_map.begin(); it != decision_map.end();++it)
     {
-      migration_decision_t temp_decision = {it->first,it->second};
+      migration_decision_t temp_decision = {it->first,it->second,it->second};
       my_decision.push_back(temp_decision);
     }
 

@@ -475,7 +475,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   double simple_migration_amount = 0.1;
   double simple_if_threshold = g_conf->mds_bal_ifthreshold;
 
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
+  dout(0) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
 
   if (!mds->is_active())
     goto out;
@@ -494,6 +494,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   if(whoami == 0){
     // mds0 is responsible for calculating IF
     if(m->get_beat()!=beat_epoch){
+    dout(0) << " MDS_IFBEAT " << __func__ << " ifbeat with wrong epoch: " << m->get_beat() << " from " << who << " to " << whoami << dendl;
       return;
     }else{
       // set mds_load[who]
@@ -606,13 +607,14 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
         set<mds_rank_t> up;
         mds->get_mds_map()->get_up_mds_set(up);
         for (set<mds_rank_t>::iterator p = up.begin(); p != up.end(); ++p) {
-	  if (*p == mds->get_nodeid())
-	    continue;
+	  if (*p == 0)continue;
+        dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.01) I'm: " <<  my_imbalance_vector[*p].whoami << " " <<  my_imbalance_vector[*p].my_if << " " << my_imbalance_vector[*p].is_bigger << dendl;
           vector<migration_decision_t> mds_decision;
-          std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
+          //std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << *p << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
               migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount)};
               mds_decision.push_back(temp_decision);
@@ -624,12 +626,13 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           }
         }
 
-        if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].my_if>=my_if_threshold){
+        if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].is_bigger){
           vector<migration_decision_t> my_decision;
           int max_importer_count = 0;
           for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << 0 << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
               migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount)};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
@@ -1696,6 +1699,13 @@ void MDBalancer::find_exports(CDir *dir,
       // how popular?
       double pop = subdir->get_load(this);
       subdir_sum += pop;
+      
+      if(pop<0){
+      string s;
+      subdir->get_inode()->make_path_string(s);
+      pair<double, double> result = req_tracer.alpha_beta(s, subdir->get_num_dentries_auth_subtree_nested());
+      dout(0) << " [Wrong!] minus pop " << pop << " " << *subdir << " potauth: " << subdir->pot_auth << " alpha: " << result.first << " beta: " << result.second << dendl;
+      }
 
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in subdir " << *subdir << " pop: " << pop << " have " << have << " Vel: " << subdir->pop_auth_subtree.show_meta_vel() << dendl;
 
@@ -1706,6 +1716,12 @@ void MDBalancer::find_exports(CDir *dir,
 
       if (pop < minchunk) continue;
 
+      if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+      {
+        dout(0) << " [WAN]: enough! " << *dir << dendl;
+        return;
+      }
+
       // lucky find?
       if (pop > needmin && pop < needmax) {
         #ifdef MDS_MONITOR
@@ -1714,13 +1730,7 @@ void MDBalancer::find_exports(CDir *dir,
   #endif 
 	exports.push_back(subdir);
 	already_exporting.insert(subdir);
-  
-  if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
-  {
-    dout(0) << " [WAN]: enough! " << *dir << dendl;
-    return;
-  }
-  
+
 	have += pop;
 	return;
       }
@@ -2189,6 +2199,6 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
   }
   pair<double, double> result = req_tracer.alpha_beta("/", total);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
-  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
   return ret;
 }

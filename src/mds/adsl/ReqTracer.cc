@@ -4,9 +4,8 @@
 
 void ReqTracer::ReqCollector::hit(string path)
 {
-  while (path.back() == '/') {
-    path.pop_back();
-  }
+  polish(path);
+
   if (coll.count(path)) {
     coll[path] += 1;
   } else {
@@ -16,17 +15,14 @@ void ReqTracer::ReqCollector::hit(string path)
 
 bool ReqTracer::ReqCollector::has(string path, bool nested) const
 {
-  while (path.back() == '/') {
-    path.pop_back();
-  }
+  polish(path);
 
   if (!nested)
     return coll.count(path);
 
-  string dirpath = path + '/';
   for (auto it = coll.begin(); it != coll.end(); it++) {
     string fullpath = it->first;
-    if (fullpath == path || fullpath.find_first_of(dirpath) == 0) {
+    if (check_path_under(path, fullpath)) {
       return true;
     }
   }
@@ -35,18 +31,15 @@ bool ReqTracer::ReqCollector::has(string path, bool nested) const
 
 int ReqTracer::ReqCollector::get(string path, bool nested) const
 {
-  while (path.back() == '/') {
-    path.pop_back();
-  }
+  polish(path);
 
   if (!nested)
     return coll.count(path) ? coll.at(path) : 0;
 
   int count = 0;
-  string dirpath = path + '/';
   for (auto it = coll.begin(); it != coll.end(); it++) {
     string fullpath = it->first;
-    if (fullpath == path || fullpath.find_first_of(dirpath) == 0) {
+    if (check_path_under(path, fullpath)) {
       // starts with path
       count += it->second;
     }
@@ -88,6 +81,31 @@ int ReqTracer::visited_count(string path, bool nested) const
   }
   return count;
 }
+
+void ReqTracer::polish(string & path)
+{
+  while (path.back() == '/') {
+    path.pop_back();
+  }
+  // root?
+  if (!path.length()) {
+    path.append(1, '/');
+  }
+}
+
+bool ReqTracer::check_path_under(const string parent, const string child, bool direct)
+{
+  string _parent = parent, _child = child;
+  polish(_parent);
+  polish(_child);
+
+  if (_parent == _child)
+    return true;
+
+  size_t pos = _child.find_first_of(_parent + '/');
+  if (pos != 0)	return false;
+  return direct ? (_child.find_first_of('/', _parent.length() + 1) == string::npos) : true;
+}
   
 void ReqTracer::switch_epoch()
 {
@@ -110,16 +128,24 @@ pair<double, double> ReqTracer::alpha_beta(string path, int subtree_size)
 {
   Mutex::Locker l(alpha_beta_mut);
 
-  int oldcnt = 0, newcnt = 0;
+  int oldcnt = 0, newcnt = 0, betacnt = 0;
   for (auto it = _last.begin(); it != _last.end(); it++) {
-    if (visited(it->first)) {
+    string fullpath = it->first;
+    // first check if childdir
+    if (!check_path_under(path, fullpath)) {
+      continue;
+    }
+
+    if (visited(it->first, true)) {
       oldcnt += it->second;
     } else {
       newcnt += it->second;
+      betacnt++;
     }
   }
-  double alpha = (double) oldcnt / (oldcnt + newcnt);
-  double beta = (double) (subtree_size - newcnt) / subtree_size;
+  int total = oldcnt + newcnt;
+  double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
+  double beta = subtree_size ? ((double) (subtree_size - betacnt) / subtree_size) : 0.0;
   return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 

@@ -3387,10 +3387,15 @@ bool CDir::should_split_fast() const
 
 double CDir::get_load(MDBalancer * bal) {
   //return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
+  string s;
+  inode->make_path_string(s);
+  pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested);
+  double alpha = alpha_beta.first;
+  double beta = alpha_beta.second;
   double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
   double pot = pot_auth.pot_load(bal->beat_epoch);
-  dout(7) << "CDir::get_load dir " << *this << " pop " << pop << " pot " << pot << dendl;
-  return pop + pot;
+  dout(7) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " pop " << pop << " pot " << pot << dendl;
+  return alpha * pop + beta * pot;
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CDir, co_dir, mds_co);

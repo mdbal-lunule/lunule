@@ -1952,11 +1952,13 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
   if (in->get_parent_dn())
     hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
 
-  // hit tracer
-  string fullpath;
-  in->make_path_string(fullpath);
-  if (fullpath == "")	fullpath = "/";
-  req_tracer.hit(fullpath);
+  // hit tracer?
+  if (in->is_auth()) {
+    string fullpath;
+    in->make_path_string(fullpath);
+    if (fullpath == "")	fullpath = "/";
+    req_tracer.hit(fullpath);
+  }
 }
 
 
@@ -2186,5 +2188,7 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
     }
   }
   pair<double, double> result = req_tracer.alpha_beta("/", total);
-  return load.mds_load(result.first, result.second, beat_epoch, auth, this);
+  double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
+  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  return ret;
 }

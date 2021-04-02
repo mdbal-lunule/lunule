@@ -37,6 +37,9 @@ class ReqTracer : public Thread {
 
     bool visited(string path, bool nested = false) const;
     int visited_count(string path, bool nested = false) const;
+
+    static void polish(string & path);
+    static bool check_path_under(const string parent, const string child, bool direct = false);
   public:
     ReqTracer(int queue_len = REQTRACER_QUEUE_LEN_DEFAULT);
     void switch_epoch();

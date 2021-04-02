@@ -20,6 +20,11 @@ struct dirfrag_pot_load_t {
 };
 WRITE_CLASS_ENCODER(dirfrag_pot_load_t)
 
+inline std::ostream& operator<<( std::ostream& out, dirfrag_pot_load_t& load )
+{
+  return out << "pot<" << load.value << ',' << load.last_epoch << '>';
+}
+
 // --- DEPRECATED ---
 /*
 struct lunule_mds_load_t {

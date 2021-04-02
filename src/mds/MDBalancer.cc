@@ -68,13 +68,14 @@ using std::vector;
 
 #define MIN_LOAD    50   //  ??
 #define MIN_REEXPORT 5  // will automatically reexport
-#define MIN_OFFLOAD 10   // point at which i stop trying, close enough
+#define MIN_OFFLOAD 0.1   // point at which i stop trying, close enough
 
 #define COLDFIRST_DEPTH 2
+#define MAX_EXPORT_SIZE 40
 
 /* This function DOES put the passed message before returning */
 
-#define LUNULE_DEBUG_LEVEL 7
+#define LUNULE_DEBUG_LEVEL 0
 
 int MDBalancer::proc_message(Message *m)
 {
@@ -547,7 +548,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       double avg_IOPS = std::accumulate(std::begin(IOPSvector), std::end(IOPSvector), 0.0)/IOPSvector.size(); 
       double max_IOPS = *max_element(IOPSvector.begin(), IOPSvector.end());
       double sum_quadratic = 0.0;
-      unsigned max_exporter_count = 3;
+      unsigned max_exporter_count = 5;
       double my_if_threshold = simple_if_threshold/min(cluster_size,max_exporter_count);
       int importer_count = 0;
 
@@ -613,10 +614,10 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           int max_importer_count = 0;
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),simple_migration_amount};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount)};
               mds_decision.push_back(temp_decision);
               max_importer_count ++;
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
             }
           }
           send_ifbeat(*p, imbalance_factor, mds_decision);
@@ -629,18 +630,24 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count)};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount)};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load << dendl;
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
             }
           }
           simple_determine_rebalance(my_decision);
-          mds->mdcache->migrator->clear_export_queue();
+          
+          if(urgency<=0.1){
+            dout(0) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
+          }else{
+            dout(0) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+            mds->mdcache->migrator->clear_export_queue();  
+          }
         }
       }else{
       dout(0) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
-      mds->mdcache->migrator->clear_export_queue();
+      //mds->mdcache->migrator->clear_export_queue();
       }
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3)  ifbeat: No enough MDSload to calculate IF, skip " << dendl;
@@ -650,11 +657,11 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
     if(get_if_value>=simple_if_threshold){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
       simple_determine_rebalance(m->get_decision());
-      mds->mdcache->migrator->clear_export_queue();
-
+      dout(0) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+      mds->mdcache->migrator->clear_export_queue();  
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is low: " << m->get_IFvaule() << dendl;
-      mds->mdcache->migrator->clear_export_queue();
+      //mds->mdcache->migrator->clear_export_queue();
     }
   }
 
@@ -1218,20 +1225,28 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
-    double ex_load = it.target_export_percent * calc_mds_load(get_load(rebalance_time), true);
+    int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
+    double ex_load = it.target_export_percent * my_mds_load;
 
-    dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << ex_load << " load to " << target << dendl;
+    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
     
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
     list<CDir*> exports;
+    int count = 0;
     double have = 0.0;
     for (set<CDir*>::iterator pot = candidates.begin(); pot != candidates.end(); ++pot) {
       if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
       
-      //find_exports(*pot, ex_load, exports, have, already_exporting);
-      find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
+      find_exports(*pot, ex_load, exports, have, already_exporting);
+      //find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
       if(have>= 0.8*ex_load )break;
+      if(exports.size() - count>=MAX_EXPORT_SIZE)
+      {
+        count = exports.size();
+  dout(0) << " MDS_IFBEAT " << " find: " << exports.size() << " last: " << count << " leave " << target << exports << dendl;       
+        break;
+      }
       //if (have > amount-MIN_OFFLOAD)break;
     }
 
@@ -1636,8 +1651,8 @@ void MDBalancer::find_exports(CDir *dir,
                               set<CDir*>& already_exporting,
 			      mds_rank_t target)
 {
-  
-  dout(0) << " [WAN]: old export was happen " << dendl;
+  int my_exports = exports.size();
+  dout(0) << " [WAN]: old export was happen to " << *dir << dendl;
   double need = amount - have;
   if (need < amount * g_conf->mds_bal_min_start)
     return;   // good enough!
@@ -1699,6 +1714,13 @@ void MDBalancer::find_exports(CDir *dir,
   #endif 
 	exports.push_back(subdir);
 	already_exporting.insert(subdir);
+  
+  if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+  {
+    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    return;
+  }
+  
 	have += pop;
 	return;
       }
@@ -1734,16 +1756,21 @@ void MDBalancer::find_exports(CDir *dir,
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
+    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+  {
+    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    return;
+  }
     if (have > needmin)
       return;
   }
 
   // apprently not enough; drill deeper into the hierarchy (if non-replicated)
-  for (list<CDir*>::iterator it = bigger_unrep.begin();
+  /*for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
        ++it) {
   dynamically_fragment(*it, amount);
-  }
+  }*/
 
   for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
@@ -1754,6 +1781,11 @@ void MDBalancer::find_exports(CDir *dir,
     dout(15) << "   descending into " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
     //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
+    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+  {
+    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    return;
+  }
     if (have > needmin)
       return;
   }
@@ -1769,6 +1801,11 @@ void MDBalancer::find_exports(CDir *dir,
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
+    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+  {
+    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    return;
+  }
     if (have > needmin)
       return;
   }
@@ -1791,8 +1828,8 @@ void MDBalancer::find_exports(CDir *dir,
 
 
 void MDBalancer::dynamically_fragment(CDir *dir, double amount){
-  if( !dir || !dir->get_inode() || amount <= 10){
-    dout(0) << __func__ << " is NULL! " << *dir  << " or amount to low: " << amount << dendl;
+  if( amount <= 0.1){
+    dout(0) << __func__ << " amount to low: " << amount << *dir << dendl;
     return;
   }
 

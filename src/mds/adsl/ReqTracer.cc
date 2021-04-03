@@ -67,7 +67,9 @@ ReqTracer::ReqTracer(int queue_len)
   
 bool ReqTracer::visited(string path, bool nested) const
 {
-  for (list<ReqCollector>::const_iterator it = _data.begin(); it != _data.end(); it++) {
+  list<ReqCollector>::const_iterator last = _data.end();
+  last--;
+  for (list<ReqCollector>::const_iterator it = _data.begin(); it != last; it++) {
     if (it->has(path, nested)) return true;
   }
   return false;
@@ -102,9 +104,9 @@ bool ReqTracer::check_path_under(const string parent, const string child, bool d
   if (_parent == _child)
     return true;
 
-  size_t pos = _child.find_first_of(_parent + '/');
+  size_t pos = _child.find(_parent + '/');
   if (pos != 0)	return false;
-  return direct ? (_child.find_first_of('/', _parent.length() + 1) == string::npos) : true;
+  return direct ? (_child.find('/', _parent.length() + 1) == string::npos) : true;
 }
   
 void ReqTracer::switch_epoch()
@@ -124,12 +126,13 @@ void ReqTracer::hit(string path)
   _last.hit(path);
 }
 
-pair<double, double> ReqTracer::alpha_beta(string path, int subtree_size)
+pair<double, double> ReqTracer::alpha_beta(string path, int subtree_size, vector<string> & betastrs)
 {
   Mutex::Locker l(alpha_beta_mut);
 
   int oldcnt = 0, newcnt = 0, betacnt = 0;
-  for (auto it = _last.begin(); it != _last.end(); it++) {
+  ReqCollector & coll = _data.back();
+  for (auto it = coll.begin(); it != coll.end(); it++) {
     string fullpath = it->first;
     // first check if childdir
     if (!check_path_under(path, fullpath)) {
@@ -138,9 +141,10 @@ pair<double, double> ReqTracer::alpha_beta(string path, int subtree_size)
 
     if (visited(it->first, true)) {
       oldcnt += it->second;
+      betacnt++;
+      betastrs.push_back(fullpath);
     } else {
       newcnt += it->second;
-      betacnt++;
     }
   }
   int total = oldcnt + newcnt;

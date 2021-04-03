@@ -401,6 +401,8 @@ void MDBalancer::send_heartbeat()
 
   if (mds->get_nodeid() == 0) {
     beat_epoch++;
+
+    req_tracer.switch_epoch();
    
     mds_load.clear();
   }
@@ -713,6 +715,8 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
     }
     beat_epoch = m->get_beat();
     send_heartbeat();
+
+    //req_tracer.switch_epoch();
 
     vector<migration_decision_t> empty_decision;
     send_ifbeat(0, -1, empty_decision);
@@ -1700,12 +1704,12 @@ void MDBalancer::find_exports(CDir *dir,
       double pop = subdir->get_load(this);
       subdir_sum += pop;
       
-      if(pop<0){
+      /*if(pop<0){
       string s;
       subdir->get_inode()->make_path_string(s);
       pair<double, double> result = req_tracer.alpha_beta(s, subdir->get_num_dentries_auth_subtree_nested());
       dout(0) << " [Wrong!] minus pop " << pop << " " << *subdir << " potauth: " << subdir->pot_auth << " alpha: " << result.first << " beta: " << result.second << dendl;
-      }
+      }*/
 
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in subdir " << *subdir << " pop: " << pop << " have " << have << " Vel: " << subdir->pop_auth_subtree.show_meta_vel() << dendl;
 
@@ -2197,8 +2201,15 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
       total += dir->get_num_dentries_auth_subtree_nested();
     }
   }
-  pair<double, double> result = req_tracer.alpha_beta("/", total);
+  vector<string> betastrs;
+  pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
-  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  if (result.second < 0) {
+    dout(7) << __func__ << " Illegal beta detected" << dendl;
+    for (string s : betastrs) {
+      dout(7) << __func__ << "   " << s << dendl;
+    }
+  }
   return ret;
 }

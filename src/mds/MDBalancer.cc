@@ -2074,7 +2074,7 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
   if (mds->mdcache->root) {
     mds->mdcache->root->get_dirfrags(rootdirs);
     for (CDir * dir : rootdirs) {
-      total += dir->get_num_dentries_auth_subtree_nested();
+      total += dir->get_num_dentries_auth_subtree_nested(beat_epoch);
     }
   }
   vector<string> betastrs;

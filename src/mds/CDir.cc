@@ -181,27 +181,55 @@ ostream& CDir::print_db_line_prefix(ostream& out)
 
 // -------------------------------------------------------------------
 // CDir
-void CDir::inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+void CDir::_maybe_update_epoch(int epoch)
 {
+  if (epoch > beat_epoch) {
+    beat_epoch = epoch;
+    num_dentries_auth_subtree_nested = get_authsubtree_size_slow();
+  }
+}
+
+int CDir::get_num_dentries_nested(int epoch)
+{
+  _maybe_update_epoch(epoch);
+  return num_dentries_nested;
+}
+
+int CDir::get_num_dentries_auth_subtree(int epoch)
+{ 
+  _maybe_update_epoch(epoch);
+  return num_dentries_auth_subtree;
+}
+
+int CDir::get_num_dentries_auth_subtree_nested(int epoch)
+{
+  _maybe_update_epoch(epoch);
+  return num_dentries_auth_subtree_nested;
+}
+
+void CDir::inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch)
+{
+  _maybe_update_epoch(epoch);
   this->num_dentries_nested += num_dentries_nested;
   this->num_dentries_auth_subtree += num_dentries_auth_subtree;
   this->num_dentries_auth_subtree_nested += num_dentries_auth_subtree_nested;
   
   CDir * pdir = get_parent_dir();
   if (pdir) {
-    pdir->inc_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+    pdir->inc_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested, epoch);
   }
 }
 
-void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested)
+void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch)
 {
+  _maybe_update_epoch(epoch);
   this->num_dentries_nested -= num_dentries_nested;
   this->num_dentries_auth_subtree -= num_dentries_auth_subtree;
   this->num_dentries_auth_subtree_nested -= num_dentries_auth_subtree_nested;
   
   CDir * pdir = get_parent_dir();
   if (pdir) {
-    pdir->dec_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested);
+    pdir->dec_density(num_dentries_nested, num_dentries_auth_subtree, num_dentries_auth_subtree_nested, epoch);
   }
 }
 
@@ -3385,7 +3413,9 @@ bool CDir::should_split_fast() const
   return effective_size > fast_limit;
 }
 
-double CDir::get_load(MDBalancer * bal) {
+double CDir::get_load(MDBalancer * bal)
+{
+  _maybe_update_epoch(bal->beat_epoch);
   //return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
   string s;
   inode->make_path_string(s);

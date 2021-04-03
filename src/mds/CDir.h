@@ -367,13 +367,15 @@ protected:
   int num_dentries_nested;
   int num_dentries_auth_subtree;
   int num_dentries_auth_subtree_nested;
+  int beat_epoch;
 
-  int get_num_dentries_nested() { return num_dentries_nested; }
-  int get_num_dentries_auth_subtree() { return num_dentries_auth_subtree; }
-  int get_num_dentries_auth_subtree_nested() { return num_dentries_auth_subtree_nested; }
+  void _maybe_update_epoch(int epoch);
+  int get_num_dentries_nested(int epoch = -1);
+  int get_num_dentries_auth_subtree(int epoch = -1);
+  int get_num_dentries_auth_subtree_nested(int epoch = -1);
 
-  void inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested);
-  void dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested);
+  void inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch = -1);
+  void dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch = -1);
 
   int get_authsubtree_size_slow();
 

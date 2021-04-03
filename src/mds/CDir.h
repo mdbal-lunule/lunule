@@ -377,7 +377,7 @@ protected:
   void inc_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch = -1);
   void dec_density(int num_dentries_nested, int num_dentries_auth_subtree, int num_dentries_auth_subtree_nested, int epoch = -1);
 
-  int get_authsubtree_size_slow();
+  int get_authsubtree_size_slow(int epoch = -1);
 
   // friends
   friend class Migrator;

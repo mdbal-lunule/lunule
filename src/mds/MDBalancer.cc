@@ -1232,6 +1232,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
+    
     int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
     double ex_load = it.target_export_percent * my_mds_load;
 
@@ -1245,8 +1246,8 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
     for (set<CDir*>::iterator pot = candidates.begin(); pot != candidates.end(); ++pot) {
       if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
       
-      find_exports(*pot, ex_load, exports, have, already_exporting);
-      //find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
+      //find_exports(*pot, ex_load, exports, have, already_exporting);
+      find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
       if(have>= 0.8*ex_load )break;
       if(exports.size() - count>=MAX_EXPORT_SIZE)
       {

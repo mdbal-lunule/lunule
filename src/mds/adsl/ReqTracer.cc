@@ -104,7 +104,7 @@ bool ReqTracer::check_path_under(const string parent, const string child, bool d
   if (_parent == _child)
     return true;
 
-  size_t pos = _child.find(_parent + '/');
+  size_t pos = _child.find(_parent != "/" ? (_parent + '/') : _parent);
   if (pos != 0)	return false;
   return direct ? (_child.find('/', _parent.length() + 1) == string::npos) : true;
 }

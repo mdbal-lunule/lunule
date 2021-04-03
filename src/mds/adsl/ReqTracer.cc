@@ -97,16 +97,16 @@ void ReqTracer::polish(string & path)
 
 bool ReqTracer::check_path_under(const string parent, const string child, bool direct)
 {
-  string _parent = parent, _child = child;
-  polish(_parent);
-  polish(_child);
+  //string _parent = parent, _child = child;
+  //polish(_parent);
+  //polish(_child);
 
-  if (_parent == _child)
+  if (parent == child)
     return true;
 
-  size_t pos = _child.find(_parent != "/" ? (_parent + '/') : _parent);
+  size_t pos = child.find(parent != "/" ? (parent + '/') : parent);
   if (pos != 0)	return false;
-  return direct ? (_child.find('/', _parent.length() + 1) == string::npos) : true;
+  return direct ? (child.find('/', parent.length() + 1) == string::npos) : true;
 }
   
 void ReqTracer::switch_epoch()

@@ -9,6 +9,8 @@ using std::map;
 using std::string;
 #include <list>
 using std::list;
+#include <vector>
+using std::vector;
 using std::pair;
 
 #include "include/assert.h"
@@ -44,7 +46,7 @@ class ReqTracer : public Thread {
     ReqTracer(int queue_len = REQTRACER_QUEUE_LEN_DEFAULT);
     void switch_epoch();
     void hit(string path);
-    pair<double, double> alpha_beta(string path, int subtree_size);
+    pair<double, double> alpha_beta(string path, int subtree_size, vector<string> & betastrs);
   protected:
     void *entry() override;
 };

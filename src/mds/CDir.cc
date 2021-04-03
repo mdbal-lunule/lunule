@@ -3389,12 +3389,27 @@ double CDir::get_load(MDBalancer * bal) {
   //return pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + pot_auth.pot_load(bal->beat_epoch);
   string s;
   inode->make_path_string(s);
-  pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested);
+  vector<string> betastrs;
+  pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested, betastrs);
   double alpha = alpha_beta.first;
   double beta = alpha_beta.second;
   double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
   double pot = pot_auth.pot_load(bal->beat_epoch);
   dout(7) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " pop " << pop << " pot " << pot << dendl;
+  if (beta < 0) {
+    dout(0) << __func__ << " Illegal beta detected: subtree path=" << s << " size=" << num_dentries_auth_subtree_nested << " betacnt=" << betastrs.size() << dendl;
+    dout(0) << __func__ << "  Subtrees:" << dendl;
+    for (auto it = items.begin(); it != items.end(); it++) {
+      CDentry * de = it->second;
+      string curpath;
+      de->make_path_string(curpath);
+      dout(0) << __func__ << "   " << curpath << dendl;
+    }
+    dout(0) << __func__ << "  Visits:" << dendl;
+    for (string s : betastrs) {
+      dout(0) << __func__ << "   " << s << dendl;
+    }
+  }
   return alpha * pop + beta * pot;
 }
 

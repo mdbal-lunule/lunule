@@ -185,7 +185,7 @@ void CDir::_maybe_update_epoch(int epoch)
 {
   if (epoch > beat_epoch) {
     beat_epoch = epoch;
-    num_dentries_auth_subtree_nested = get_authsubtree_size_slow();
+    num_dentries_auth_subtree_nested = get_authsubtree_size_slow(epoch);
   }
 }
 
@@ -233,17 +233,23 @@ void CDir::dec_density(int num_dentries_nested, int num_dentries_auth_subtree, i
   }
 }
 
-int CDir::get_authsubtree_size_slow()
+int CDir::get_authsubtree_size_slow(int epoch)
 {
-  int count = 0;
+  if (epoch <= beat_epoch)	return num_dentries_auth_subtree_nested;
+
+  beat_epoch = epoch;
+
+  // calculate
+  num_dentries_auth_subtree_nested = 0;
   for (auto it = items.begin(); it != items.end(); it++) {
     CDentry::linkage_t * linkage = it->second->get_linkage();
     // We do not care about null (only name) and remote (Inode on another MDS) dentries
     if (linkage->is_primary()) {
-      count += linkage->get_inode()->get_authsubtree_size_slow();
+      num_dentries_auth_subtree_nested += linkage->get_inode()->get_authsubtree_size_slow(epoch);
     }
   }
-  return count;
+  num_dentries_auth_subtree_nested += items.size();
+  return num_dentries_auth_subtree_nested;
 }
 
 CDir::CDir(CInode *in, frag_t fg, MDCache *mdcache, bool auth) :

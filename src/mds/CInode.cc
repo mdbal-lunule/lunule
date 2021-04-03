@@ -4569,14 +4569,14 @@ bool CInode::is_exportable(mds_rank_t dest) const
   }
 }
 
-int CInode::get_authsubtree_size_slow()
+int CInode::get_authsubtree_size_slow(int epoch)
 {
   std::list<CDir*> subtrees;
   get_dirfrags(subtrees);
   int count = 0;
   for (CDir * subtree : subtrees) {
     if (subtree->is_auth()) {
-      count += subtree->get_authsubtree_size_slow();
+      count += subtree->get_authsubtree_size_slow(epoch);
     }
   }
   return count;

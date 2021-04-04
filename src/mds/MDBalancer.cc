@@ -477,7 +477,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   double simple_migration_amount = 0.1;
   double simple_if_threshold = g_conf->mds_bal_ifthreshold;
 
-  dout(0) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
 
   if (!mds->is_active())
     goto out;
@@ -496,7 +496,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   if(whoami == 0){
     // mds0 is responsible for calculating IF
     if(m->get_beat()!=beat_epoch){
-    dout(0) << " MDS_IFBEAT " << __func__ << " ifbeat with wrong epoch: " << m->get_beat() << " from " << who << " to " << whoami << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " ifbeat with wrong epoch: " << m->get_beat() << " from " << who << " to " << whoami << dendl;
       return;
     }else{
       // set mds_load[who]
@@ -644,14 +644,14 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           simple_determine_rebalance(my_decision);
           
           if(urgency<=0.1){
-            dout(0) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
+            dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
           }else{
-            dout(0) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+            dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
             mds->mdcache->migrator->clear_export_queue();  
           }
         }
       }else{
-      dout(0) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
       //mds->mdcache->migrator->clear_export_queue();
       }
     }else{
@@ -662,7 +662,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
     if(get_if_value>=simple_if_threshold){
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
       simple_determine_rebalance(m->get_decision());
-      dout(0) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
       mds->mdcache->migrator->clear_export_queue();  
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is low: " << m->get_IFvaule() << dendl;
@@ -1236,7 +1236,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
     int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
     double ex_load = it.target_export_percent * my_mds_load;
 
-    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
     
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
@@ -1252,7 +1252,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       if(exports.size() - count>=MAX_EXPORT_SIZE)
       {
         count = exports.size();
-  dout(0) << " MDS_IFBEAT " << " find: " << exports.size() << " last: " << count << " leave " << target << exports << dendl;       
+  dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << " find: " << exports.size() << " last: " << count << " leave " << target << exports << dendl;       
         break;
       }
       //if (have > amount-MIN_OFFLOAD)break;
@@ -1660,7 +1660,7 @@ void MDBalancer::find_exports(CDir *dir,
 			      mds_rank_t target)
 {
   int my_exports = exports.size();
-  dout(0) << " [WAN]: old export was happen to " << *dir << dendl;
+  dout(LUNULE_DEBUG_LEVEL) << " [WAN]: old export was happen to " << *dir << dendl;
   double need = amount - have;
   if (need < amount * g_conf->mds_bal_min_start)
     return;   // good enough!
@@ -1723,7 +1723,7 @@ void MDBalancer::find_exports(CDir *dir,
 
       if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
       {
-        dout(0) << " [WAN]: enough! " << *dir << dendl;
+        dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
         return;
       }
 
@@ -1773,7 +1773,7 @@ void MDBalancer::find_exports(CDir *dir,
     have += (*it).first;
     if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
-    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
   }
     if (have > needmin)
@@ -1798,7 +1798,7 @@ void MDBalancer::find_exports(CDir *dir,
     //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
     if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
-    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
   }
     if (have > needmin)
@@ -1818,7 +1818,7 @@ void MDBalancer::find_exports(CDir *dir,
     have += (*it).first;
     if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
-    dout(0) << " [WAN]: enough! " << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
   }
     if (have > needmin)
@@ -1844,7 +1844,7 @@ void MDBalancer::find_exports(CDir *dir,
 
 void MDBalancer::dynamically_fragment(CDir *dir, double amount){
   if( amount <= 0.1){
-    dout(0) << __func__ << " amount to low: " << amount << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << __func__ << " amount to low: " << amount << *dir << dendl;
     return;
   }
 
@@ -1852,7 +1852,7 @@ void MDBalancer::dynamically_fragment(CDir *dir, double amount){
   dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(0): " << *dir << dendl;
   double dir_pop = dir->get_load(this);
   if(dir_pop >amount*0.6){
-    dout(0) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << __func__ << " my_pop:  " << dir_pop << " is big enough for: " << amount << *dir << dendl;
     double sub_dir_total = 0;
     for (auto it = dir->begin(); it != dir->end(); ++it) {
     CInode *in = it->second->get_linkage()->get_inode();
@@ -1873,7 +1873,7 @@ void MDBalancer::dynamically_fragment(CDir *dir, double amount){
    }
   double file_hot_ratio = 1-sub_dir_total/dir_pop;
   if(file_hot_ratio >=0.5){
-    dout(0) << __func__ << " dynamically (2) file_access_hotspot " << file_hot_ratio << " find in " << *dir << dendl;
+    dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically (2) file_access_hotspot " << file_hot_ratio << " find in " << *dir << dendl;
     maybe_fragment(dir,true);
   }
   dout(LUNULE_DEBUG_LEVEL) << __func__ << " dynamically(3) I'm" << *dir << " my_pop: " << dir_pop << " my_sub_pop: " << sub_dir_total << dendl;
@@ -1899,7 +1899,7 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
   string s;
   dir->get_inode()->make_path_string(s);
   WorkloadType wlt = adsl::workload2type(adsl::g_matcher.match(s));
-  dout(0) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
+  dout(LUNULE_DEBUG_LEVEL) << __func__ << " path=" << s << " workload=" << adsl::g_matcher.match(s) << " type=" << wlt << dendl;
   
   //dynamically_fragment(dir, amount);
   
@@ -2062,7 +2062,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 	dout(5) << "replicating dir " << *dir << " pop " << dir_pop << " .. rdp " << rdp << " adj " << rd_adj << dendl;
 
 	#ifdef MDS_MONITOR
-	dout(0) << "replicating dir " << *dir << " pop " << dir_pop << " .. rdp " << rdp << " adj " << rd_adj << dendl;
+	dout(LUNULE_DEBUG_LEVEL) << "replicating dir " << *dir << " pop " << dir_pop << " .. rdp " << rdp << " adj " << rd_adj << dendl;
 	#endif
 	
 	dir->dir_rep = CDir::REP_ALL;

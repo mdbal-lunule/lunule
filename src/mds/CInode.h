@@ -40,6 +40,8 @@
 #include "SnapRealm.h"
 #include "Mutation.h"
 
+#include "adsl/ReqCounter.h"
+
 #define dout_context g_ceph_context
 
 class Context;
@@ -631,6 +633,14 @@ public:
   int auth_pin_freeze_allowance = 0;
 
   inode_load_vec_t pop;
+  ReqCounter hitcount;
+  int newoldhit[2];
+  int subtree_size;
+  int beat_epoch;
+
+  int maybe_update_epoch(int epoch = -1);
+  void hit(bool check_epoch = false, int epoch = -1);
+  pair<double, double> alpha_beta(int epoch = -1);
 
   // friends
   friend class Server;
@@ -663,9 +673,12 @@ public:
     snaplock(this, &snaplock_type),
     nestlock(this, &nestlock_type),
     flocklock(this, &flocklock_type),
+    subtree_size(0),
+    beat_epoch(-1),
     policylock(this, &policylock_type)
   {
     if (auth) state_set(STATE_AUTH);
+    newoldhit[0] = newoldhit[1] = 0;
   }
   ~CInode() override {
     close_dirfrags();

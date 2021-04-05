@@ -1961,18 +1961,12 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
 
 void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 {
-  // hit inode
+  // hit inode pop and count
   in->pop.get(type).hit(now, mds->mdcache->decayrate);
+  in->hit(true, beat_epoch);
 
-  if (in->get_parent_dn())
+  if (in->get_parent_dn()) {
     hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
-
-  // hit tracer?
-  if (in->is_auth()) {
-    string fullpath;
-    in->make_path_string(fullpath);
-    if (fullpath == "")	fullpath = "/";
-    req_tracer.hit(fullpath);
   }
 }
 
@@ -2194,23 +2188,19 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
-  int total = 0;
-  list<CDir *> rootdirs;
-  if (mds->mdcache->root) {
-    mds->mdcache->root->get_dirfrags(rootdirs);
-    for (CDir * dir : rootdirs) {
-      total += dir->get_num_dentries_auth_subtree_nested(beat_epoch);
-    }
-  }
-  vector<string> betastrs;
-  pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
+  if (!mds->mdcache->root)
+    return 0.0;
+
+  //vector<string> betastrs;
+  //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
+  pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
   dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
-  if (result.second < 0) {
-    dout(7) << __func__ << " Illegal beta detected" << dendl;
-    for (string s : betastrs) {
-      dout(7) << __func__ << "   " << s << dendl;
-    }
-  }
+  //if (result.second < 0) {
+  //  dout(7) << __func__ << " Illegal beta detected" << dendl;
+  //  for (string s : betastrs) {
+  //    dout(7) << __func__ << "   " << s << dendl;
+  //  }
+  //}
   return ret;
 }

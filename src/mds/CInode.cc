@@ -4591,7 +4591,6 @@ int CInode::maybe_update_epoch(int epoch)
   if (epoch > beat_epoch) {
     hitcount.switch_epoch(epoch - beat_epoch);
     newoldhit[0] = newoldhit[1] = 0;
-    subtree_size = 0;
     beat_epoch = epoch;
   }
   return ret;
@@ -4615,6 +4614,7 @@ void CInode::hit(bool check_epoch, int epoch)
     in->newoldhit[newold]++;
     if (!in->is_auth())	break;
   }
+  dout(0) << "CInode::hit Root old=" << mdcache->get_root()->newoldhit[0] << " new=" << mdcache->get_root()->newoldhit[1] << dendl;
 }
 
 pair<double, double> CInode::alpha_beta(int epoch)

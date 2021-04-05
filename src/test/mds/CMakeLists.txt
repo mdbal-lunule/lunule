@@ -14,3 +14,7 @@ add_executable(unittest_mds_sessionfilter
 add_ceph_unittest(unittest_mds_sessionfilter ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/unittest_mds_sessionfilter)
 target_link_libraries(unittest_mds_sessionfilter mds osdc ceph-common global ${BLKID_LIBRARIES})
 
+add_executable(functest_mds_adsl_check_path_under
+	adsl/check_path_under.cc
+	)
+target_link_libraries(functest_mds_adsl_check_path_under ceph-common mds)

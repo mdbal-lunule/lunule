@@ -37,18 +37,22 @@ class ReqTracer : public Thread {
     ReqCollector _last;
     Mutex alpha_beta_mut;
 
+    bool m_runFlag;
+
     bool visited(string & path, bool nested = false) const;
     int visited_count(string & path, bool nested = false) const;
 
     static void polish(string & path);
-    static bool check_path_under(const string & parent, const string & child, bool direct = false);
   public:
+    static bool check_path_under(const string & parent, const string & child, bool direct = false);
     ReqTracer(int queue_len = REQTRACER_QUEUE_LEN_DEFAULT);
     void switch_epoch();
     void hit(string & path);
     pair<double, double> alpha_beta(string path, int subtree_size, vector<string> & betastrs);
   protected:
     void *entry() override;
+    void mark_stop() { m_runFlag = false; }
+    void wait_finish() { Thread::join(); }
 };
 
 #endif

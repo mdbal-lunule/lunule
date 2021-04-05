@@ -60,8 +60,10 @@ int ReqTracer::ReqCollector::total() const
 }
 
 ReqTracer::ReqTracer(int queue_len)
-  : _data(queue_len), alpha_beta_mut("lunule-alpha-beta")
-{}
+  : _data(queue_len), alpha_beta_mut("lunule-alpha-beta"), m_runFlag(true)
+{
+  //create("MDS-ReqTracer");
+}
   
 bool ReqTracer::visited(string & path, bool nested) const
 {
@@ -153,5 +155,7 @@ pair<double, double> ReqTracer::alpha_beta(string path, int subtree_size, vector
 
 void * ReqTracer::entry()
 {
+  while (m_runFlag) {
+  }
   return 0;
 }

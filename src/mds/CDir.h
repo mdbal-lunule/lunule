@@ -367,6 +367,7 @@ protected:
   int num_dentries_nested;
   int num_dentries_auth_subtree;
   int num_dentries_auth_subtree_nested;
+
   int beat_epoch;
 
   void _maybe_update_epoch(int epoch);

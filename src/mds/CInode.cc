@@ -4571,15 +4571,62 @@ bool CInode::is_exportable(mds_rank_t dest) const
 
 int CInode::get_authsubtree_size_slow(int epoch)
 {
+  if (epoch % 3 == 0 || maybe_update_epoch(epoch) <= 0)
+    return subtree_size;
+
   std::list<CDir*> subtrees;
   get_dirfrags(subtrees);
-  int count = 0;
+  subtree_size = 0;
   for (CDir * subtree : subtrees) {
     if (subtree->is_auth()) {
-      count += subtree->get_authsubtree_size_slow(epoch);
+      subtree_size += subtree->get_authsubtree_size_slow(epoch);
     }
   }
-  return count;
+  return subtree_size;
+}
+
+int CInode::maybe_update_epoch(int epoch)
+{
+  int ret = epoch - beat_epoch;
+  if (epoch > beat_epoch) {
+    hitcount.switch_epoch(epoch - beat_epoch);
+    newoldhit[0] = newoldhit[1] = 0;
+    subtree_size = 0;
+    beat_epoch = epoch;
+  }
+  return ret;
+}
+
+void CInode::hit(bool check_epoch, int epoch)
+{
+  if (check_epoch && maybe_update_epoch(epoch) < 0)
+    return;
+
+  if (!is_auth())
+    return;
+  
+  int newold = hitcount.hit();
+  if (newold < 0)	return;
+  newoldhit[newold]++;
+
+  CInode * in = this;
+  while (in->get_parent_dn()) {
+    in = in->get_parent_dn()->get_dir()->get_inode();
+    in->newoldhit[newold]++;
+    if (!in->is_auth())	break;
+  }
+}
+
+pair<double, double> CInode::alpha_beta(int epoch)
+{
+  // calculate subtree size
+  int subtree_size = get_authsubtree_size_slow(epoch);
+  maybe_update_epoch(epoch);
+  int oldcnt = newoldhit[0], newcnt = newoldhit[1];
+  int total = oldcnt + newcnt;
+  double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
+  double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
+  return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 
 MEMPOOL_DEFINE_OBJECT_FACTORY(CInode, co_inode, mds_co);

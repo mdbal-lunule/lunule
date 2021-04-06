@@ -1238,7 +1238,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       sample_count += (*pot)->get_inode()->last_hit_amount();
   }
 
-  if(sample_count <= 0.2* g_conf->mds_bal_presetmax || my_mds_load <= 0.2* g_conf->mds_bal_presetmax ){
+  if(sample_count <= g_conf->mds_bal_presetmax || my_mds_load <= 0.2* g_conf->mds_bal_presetmax ){
         dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
         return ;
   }
@@ -1693,7 +1693,7 @@ void MDBalancer::find_exports(CDir *dir,
   dout(7) << " find_exports in " << dir_pop << " " << *dir << " need " << need << " (" << needmin << " - " << needmax << ")" << dendl;
   #ifdef MDS_MONITOR
   dout(7) << " MDS_MONITOR " << __func__ << " needmax " << needmax << " needmin " << needmin << " midchunk " << midchunk << " minchunk " << minchunk << dendl;
-  dout(7) << " MDS_MONITOR " << __func__ << "(1) Find DIR " << *dir << " pop " << dir_pop << 
+  dout(7) << " MDS_MONITOR " << __func__ << "(1) Find DIR " << *dir << " expect_request " << dir_pop << 
   " amount " << amount << " have " << have << " need " << need << dendl;
   #endif  
 
@@ -1738,7 +1738,7 @@ void MDBalancer::find_exports(CDir *dir,
 
       if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
       {
-        dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
+        dout(LUNULE_DEBUG_LEVEL) << " [WAN]: got" << exports.size() - my_exports << " targets, enough! " << *dir << dendl;
         return;
       }
 
@@ -2203,14 +2203,16 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
-  if (!mds->mdcache->root)
-    return 0.0;
+  if (!mds->mdcache->root){
+    dout(0) << __func__ << " dont calculate mds load " << dendl;
+    return 0.0;}
+    
 
   //vector<string> betastrs;
   //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
   pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
-  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
   //if (result.second < 0) {
   //  dout(7) << __func__ << " Illegal beta detected" << dendl;
   //  for (string s : betastrs) {

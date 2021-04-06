@@ -2030,6 +2030,8 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
     dir->inode->make_path_string(s);
   dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
   if (level > 0) {
+    adj_auth_pot /= dir->get_num_any();
+    adj_all_pot /= dir->get_num_any();
     for (auto it = dir->begin(); it != dir->end(); it++) {
       CDentry::linkage_t * de_l = it->second->get_linkage();
       if (de_l && de_l->is_primary()) {

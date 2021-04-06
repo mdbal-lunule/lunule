@@ -765,6 +765,8 @@ protected:
   dirfrag_pot_load_t pop_all;
   dirfrag_pot_load_t pot_auth;
   dirfrag_pot_load_t pot_all;
+
+  dirfrag_pot_load_t pot_cached;
 public:
   double get_load(MDBalancer * bal);
 };

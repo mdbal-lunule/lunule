@@ -3951,8 +3951,7 @@ void Server::handle_client_readdir(MDRequestRef& mdr)
   mdr->reply_extra_bl = dirbl;
 
   // bump popularity.  NOTE: this doesn't quite capture it.
-  dir->get_inode()->hit();
-  mds->balancer->hit_dir(now, dir, META_POP_IRD, -1, numfiles);
+  mds->balancer->hit_dir(now, dir, META_POP_IRD, -1, numfiles, dir->get_inode()->hit());
   
   // reply
   mdr->tracei = diri;
@@ -6205,8 +6204,7 @@ void Server::_unlink_local_finish(MDRequestRef& mdr,
     mdcache->adjust_subtree_after_rename(strayin, dn->get_dir(), true);
 
   // bump pop
-  dn->get_dir()->get_inode()->hit();
-  mds->balancer->hit_dir(mdr->get_mds_stamp(), dn->get_dir(), META_POP_IWR);
+  mds->balancer->hit_dir(mdr->get_mds_stamp(), dn->get_dir(), META_POP_IWR, -1, 1.0, dn->get_dir()->get_inode()->hit());
 
   // reply
   respond_to_request(mdr, 0);
@@ -7051,8 +7049,7 @@ void Server::_rename_finish(MDRequestRef& mdr, CDentry *srcdn, CDentry *destdn, 
     assert(g_conf->mds_kill_rename_at != 6);
   
   // bump popularity
-  srcdn->get_dir()->get_inode()->hit();
-  mds->balancer->hit_dir(mdr->get_mds_stamp(), srcdn->get_dir(), META_POP_IWR);
+  mds->balancer->hit_dir(mdr->get_mds_stamp(), srcdn->get_dir(), META_POP_IWR, -1, 1.0, srcdn->get_dir()->get_inode()->hit());
   if (destdnl->is_remote() && in->is_auth())
     mds->balancer->hit_inode(mdr->get_mds_stamp(), in, META_POP_IWR);
 
@@ -7936,8 +7933,7 @@ void Server::_logged_slave_rename(MDRequestRef& mdr,
   destdnl = destdn->get_linkage();
 
   // bump popularity
-  srcdn->get_dir()->get_inode()->hit();
-  mds->balancer->hit_dir(mdr->get_mds_stamp(), srcdn->get_dir(), META_POP_IWR);
+  mds->balancer->hit_dir(mdr->get_mds_stamp(), srcdn->get_dir(), META_POP_IWR, -1, 1.0, srcdn->get_dir()->get_inode()->hit());
   if (destdnl->get_inode() && destdnl->get_inode()->is_auth())
     mds->balancer->hit_inode(mdr->get_mds_stamp(), destdnl->get_inode(),
 			     META_POP_IWR);

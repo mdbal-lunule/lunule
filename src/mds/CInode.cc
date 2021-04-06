@@ -4586,7 +4586,7 @@ int CInode::get_authsubtree_size_slow(int epoch)
   return subtree_size;
 }
 
-int CInode::maybe_update_epoch(int epoch)
+inline int CInode::maybe_update_epoch(int epoch)
 {
   int ret = epoch - beat_epoch;
   if (epoch > beat_epoch) {
@@ -4599,16 +4599,16 @@ int CInode::maybe_update_epoch(int epoch)
   return ret;
 }
 
-void CInode::hit(bool check_epoch, int epoch)
+int CInode::hit(bool check_epoch, int epoch)
 {
   if (check_epoch && maybe_update_epoch(epoch) < 0)
-    return;
+    return -2;
 
   if (!is_auth())
-    return;
+    return -2;
   
   int newold = hitcount.hit();
-  if (newold < 0)	return;
+  if (newold < 0)	return newold;
   newoldhit[newold]++;
 
   CInode * in = this;
@@ -4618,6 +4618,7 @@ void CInode::hit(bool check_epoch, int epoch)
     //if (!in->is_auth())	break;
   }
   dout(0) << "CInode::hit Root old=" << mdcache->get_root()->newoldhit[0] << " new=" << mdcache->get_root()->newoldhit[1] << dendl;
+  return newold;
 }
 
 pair<double, double> CInode::alpha_beta(int epoch)

@@ -65,7 +65,8 @@ public:
   void add_import(CDir *im, utime_t now);
 
   void hit_inode(utime_t now, CInode *in, int type, int who=-1);
-  void hit_dir(utime_t now, CDir *dir, int type, int who=-1, double amount=1.0);
+  void update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot = 1.0, double adj_all_pot = 1.0);
+  void hit_dir(utime_t now, CDir *dir, int type, int who=-1, double amount=1.0, int newold=-2);
 
   void queue_split(const CDir *dir, bool fast);
   void queue_merge(CDir *dir);

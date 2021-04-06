@@ -1979,10 +1979,10 @@ void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 {
   // hit inode pop and count
   in->pop.get(type).hit(now, mds->mdcache->decayrate);
-  in->hit(true, beat_epoch);
+  int newold = in->hit(true, beat_epoch);
 
   if (in->get_parent_dn()) {
-    hit_dir(now, in->get_parent_dn()->get_dir(), type, who);
+    hit_dir(now, in->get_parent_dn()->get_dir(), type, who, 1.0, newold);
   }
 }
 
@@ -2022,7 +2022,41 @@ void MDBalancer::maybe_fragment(CDir *dir, bool hot)
   }
 }
 
-void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amount)
+//auto update_dir_pot_recur = [this] (CDir * dir, int level, double adj_auth_pot = 1.0, double adj_all_pot = 1.0) -> void {
+void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot, double adj_all_pot)
+{
+  string s = "/";
+  if (dir->inode->get_parent_dn())
+    dir->inode->make_path_string(s);
+  dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
+  if (level > 0) {
+    for (auto it = dir->begin(); it != dir->end(); it++) {
+      CDentry::linkage_t * de_l = it->second->get_linkage();
+      if (de_l && de_l->is_primary()) {
+        CInode * in = de_l->get_inode();
+        list<CDir *> petals;
+        in->get_dirfrags(petals);
+        int brothers_count = 0;
+        int brothers_auth_count = 0;
+        for (CDir * petal : petals) {
+          brothers_count += petal->get_num_any();
+          if (petal->is_auth())
+    	brothers_auth_count += petal->get_num_any();
+        }
+        for (CDir * petal : petals) {
+          update_dir_pot_recur(petal, level - 1, adj_auth_pot * petal->get_num_any() / brothers_count, adj_all_pot * petal->get_num_any() / brothers_auth_count);
+        }
+      }
+    }
+  } else if (!level) {
+    dir->pot_all.adjust(adj_all_pot, beat_epoch);
+    if (dir->is_auth())
+      dir->pot_auth.adjust(adj_auth_pot, beat_epoch);
+  }
+}
+
+
+void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amount, int newold)
 {
   // hit me
   double v = dir->pop_me.get(type).hit(now, mds->mdcache->decayrate, amount);
@@ -2124,10 +2158,21 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     dir = dir->inode->get_parent_dn()->get_dir();
   }
 
+  if (newold < 1)	return;
+
   dir = origdir;
   // adjust potential load for brother dirfrags
-  auto update_dir_pot = [this](CInode * in) -> void {
+  auto update_dir_pot = [this](CDir * dir, int level = 1) -> bool {
   //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
+    CInode * in = dir->inode;
+    int i;
+    for (i = 0; i < level; i++) {
+      if (!in->get_parent_dn())	break;
+      in = in->get_parent_dn()->get_dir()->get_inode();
+    }
+    bool ret = (i == level);
+    level = i;
+
     list<CDir *> petals;
     in->get_dirfrags(petals);
     int brothers_count = 0;
@@ -2137,19 +2182,29 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
       if (petal->is_auth())
 	brothers_auth_count += petal->get_num_any();
     }
-    for (CDir * petal : petals) {
-      petal->pot_all.adjust((double)petal->get_num_any() / brothers_count, beat_epoch);
-      if (petal->is_auth())
-	petal->pot_auth.adjust((double)petal->get_num_any() / brothers_auth_count, beat_epoch);
+
+    dir->pot_cached.inc(beat_epoch);
+    double cached_load = dir->pot_cached.pot_load(beat_epoch);
+    if (cached_load < brothers_auth_count) {
+      return false;
     }
+    dir->pot_cached.clear(beat_epoch);
+    
+    for (CDir * petal : petals) {
+      update_dir_pot_recur(petal, level, cached_load * petal->get_num_any() / brothers_count, cached_load * petal->get_num_any() / brothers_auth_count);
+    }
+    return ret;
   };
-  update_dir_pot(dir->inode);
 
   bool update_pot_auth = dir->is_auth();
   //if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
-  if (!dir->inode->get_parent_dn()) return;
+  if (!dir->inode->get_parent_dn()) {
+    update_dir_pot(dir);
+    return;
+  }
 
-  update_dir_pot(dir->inode->get_parent_dir()->inode);
+  if (update_dir_pot(dir, 2))
+    dir = dir->inode->get_parent_dn()->get_dir();
 
   while (dir->inode->get_parent_dn()) {
     dir = dir->inode->get_parent_dn()->get_dir();
@@ -2158,6 +2213,15 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
       dir->pot_auth.inc(beat_epoch);
     //dir->pot_auth.inc(beat_epoch);
     dir->pot_all.inc(beat_epoch);
+  }
+
+  set<CDir *> authsubs;
+  mds->mdcache->get_auth_subtrees(authsubs);
+  dout(0) << __func__ << " authsubtrees:" << dendl;
+  for (CDir * dir : authsubs) {
+    string s;
+    dir->get_inode()->make_path_string(s);
+    dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
   }
 }
 

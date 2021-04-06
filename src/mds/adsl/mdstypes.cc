@@ -30,6 +30,12 @@ void dirfrag_pot_load_t::add(dirfrag_pot_load_t & anotherpot)
   adjust(anotherpot.value, anotherpot.last_epoch);
 }
 
+void dirfrag_pot_load_t::clear(int epoch)
+{
+  _update_epoch(epoch);
+  value = 0;
+}
+
 double dirfrag_pot_load_t::pot_load(int epoch)
 {
   if (epoch > 0)

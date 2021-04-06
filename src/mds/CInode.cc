@@ -4582,6 +4582,7 @@ int CInode::get_authsubtree_size_slow(int epoch)
       subtree_size += subtree->get_authsubtree_size_slow(epoch);
     }
   }
+  dout(0) << __func__ << " epoch=" << epoch << " name=" << (parent ? parent->name : "root") << " subtreesize=" << subtree_size << dendl;
   return subtree_size;
 }
 
@@ -4590,6 +4591,8 @@ int CInode::maybe_update_epoch(int epoch)
   int ret = epoch - beat_epoch;
   if (epoch > beat_epoch) {
     hitcount.switch_epoch(epoch - beat_epoch);
+    last_newoldhit[0] = newoldhit[0];
+    last_newoldhit[1] = newoldhit[1];
     newoldhit[0] = newoldhit[1] = 0;
     beat_epoch = epoch;
   }
@@ -4612,7 +4615,7 @@ void CInode::hit(bool check_epoch, int epoch)
   while (in->get_parent_dn()) {
     in = in->get_parent_dn()->get_dir()->get_inode();
     in->newoldhit[newold]++;
-    if (!in->is_auth())	break;
+    //if (!in->is_auth())	break;
   }
   dout(0) << "CInode::hit Root old=" << mdcache->get_root()->newoldhit[0] << " new=" << mdcache->get_root()->newoldhit[1] << dendl;
 }
@@ -4622,10 +4625,11 @@ pair<double, double> CInode::alpha_beta(int epoch)
   // calculate subtree size
   int subtree_size = get_authsubtree_size_slow(epoch);
   maybe_update_epoch(epoch);
-  int oldcnt = newoldhit[0], newcnt = newoldhit[1];
+  int oldcnt = last_newoldhit[0], newcnt = last_newoldhit[1];
   int total = oldcnt + newcnt;
   double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
   double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
+  dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
   return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 

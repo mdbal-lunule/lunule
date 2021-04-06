@@ -635,6 +635,7 @@ public:
   inode_load_vec_t pop;
   ReqCounter hitcount;
   int newoldhit[2];
+  int last_newoldhit[2];
   int subtree_size;
   int beat_epoch;
 
@@ -679,6 +680,7 @@ public:
   {
     if (auth) state_set(STATE_AUTH);
     newoldhit[0] = newoldhit[1] = 0;
+    last_newoldhit[0] = last_newoldhit[1] = 0;
   }
   ~CInode() override {
     close_dirfrags();

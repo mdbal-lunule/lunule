@@ -2164,7 +2164,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
   dir = origdir;
   // adjust potential load for brother dirfrags
-  auto update_dir_pot = [this](CDir * dir, int level = 1) -> bool {
+  auto update_dir_pot = [this](CDir * dir, int level = 0) -> bool {
   //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
     CInode * in = dir->inode;
     int i;
@@ -2207,7 +2207,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     return;
   }
 
-  if (update_dir_pot(dir, 2))
+  if (update_dir_pot(dir, 1))
     dir = dir->inode->get_parent_dn()->get_dir();
 
   while (dir->inode->get_parent_dn()) {

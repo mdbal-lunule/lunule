@@ -1890,9 +1890,13 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
     dir->inode->make_path_string(s);
   dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
   if (level > 0) {
-    adj_auth_pot /= dir->get_num_any();
-    adj_all_pot /= dir->get_num_any();
+    int brocount = 0;
+    for (auto it = dir->begin(); it != dir->end(); it++)
+      brocount += dir->get_authsubtree_size_slow(beat_epoch);
     for (auto it = dir->begin(); it != dir->end(); it++) {
+      int my_subtree_size = dir->get_authsubtree_size_slow(beat_epoch);
+      double my_adj_auth_pot = adj_auth_pot * my_subtree_size / brocount;
+      double my_adj_all_pot = adj_all_pot * my_subtree_size / brocount;
       CDentry::linkage_t * de_l = it->second->get_linkage();
       if (de_l && de_l->is_primary()) {
         CInode * in = de_l->get_inode();
@@ -1905,8 +1909,8 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
           if (petal->is_auth())
 	    brothers_auth_count += petal->get_num_any();
         }
-	double adj_auth_single = brothers_auth_count ? (adj_auth_pot / brothers_auth_count) : 0.0;
-	double adj_all_single = brothers_count ? (adj_all_pot / brothers_count) : 0.0;
+	double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
+	double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
         for (CDir * petal : petals) {
           update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
         }

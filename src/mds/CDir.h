@@ -761,6 +761,8 @@ public:
   void dump(Formatter *f) const;
 
 protected:
+  dirfrag_pot_load_t pop_auth;
+  dirfrag_pot_load_t pop_all;
   dirfrag_pot_load_t pot_auth;
   dirfrag_pot_load_t pot_all;
 public:

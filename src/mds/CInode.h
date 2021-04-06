@@ -665,6 +665,8 @@ public:
     item_dirty_dirfrag_nest(this), 
     item_dirty_dirfrag_dirfragtree(this), 
     pop(ceph_clock_now()),
+    subtree_size(0),
+    beat_epoch(-1),
     versionlock(this, &versionlock_type),
     authlock(this, &authlock_type),
     linklock(this, &linklock_type),
@@ -674,8 +676,6 @@ public:
     snaplock(this, &snaplock_type),
     nestlock(this, &nestlock_type),
     flocklock(this, &flocklock_type),
-    subtree_size(0),
-    beat_epoch(-1),
     policylock(this, &policylock_type)
   {
     if (auth) state_set(STATE_AUTH);

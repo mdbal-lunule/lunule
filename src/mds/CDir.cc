@@ -3430,6 +3430,7 @@ double CDir::get_load(MDBalancer * bal)
   double alpha = alpha_beta.first;
   double beta = alpha_beta.second;
   double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
+  //double pop = pop_auth.pot_load(bal->beat_epoch);
   double pot = pot_auth.pot_load(bal->beat_epoch);
   dout(0) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " pop " << pop << " pot " << pot << dendl;
   if (beta < 0) {

@@ -260,7 +260,8 @@ double mds_load_t::mds_pot_load(bool auth, int epoch)
 double mds_load_t::mds_load(double alpha, double beta, int epoch, bool is_auth, MDBalancer * bal)
 {
   if (is_auth)
-    return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_auth.pot_load(epoch);
+    //return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_auth.pot_load(epoch);
+    return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_all.pot_load(epoch);
   else
     return alpha * mds_pop_load() + beta * mds_pot_load(epoch);
 }
@@ -2145,7 +2146,8 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   update_dir_pot(dir->inode);
 
   bool update_pot_auth = dir->is_auth();
-  if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
+  //if (!update_pot_auth || !dir->inode->get_parent_dn()) return;
+  if (!dir->inode->get_parent_dn()) return;
 
   update_dir_pot(dir->inode->get_parent_dir()->inode);
 
@@ -2154,6 +2156,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     // adjust ancestors' pot
     if (update_pot_auth)
       dir->pot_auth.inc(beat_epoch);
+    //dir->pot_auth.inc(beat_epoch);
     dir->pot_all.inc(beat_epoch);
   }
 }

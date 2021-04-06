@@ -6,9 +6,10 @@
 #include "include/encoding.h"
 
 struct dirfrag_pot_load_t {
-  double value;
+  double value; // for last epoch
+  double last_value; // for this epoch
   int last_epoch;
-  dirfrag_pot_load_t() : value(0.0), last_epoch(-1) {}
+  dirfrag_pot_load_t() : value(0.0), last_value(0.0), last_epoch(-1) {}
   void _update_epoch(int epoch);
   void inc(int epoch);
   void adjust(double adj, int epoch);

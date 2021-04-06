@@ -4,7 +4,8 @@
 
 void dirfrag_pot_load_t::_update_epoch(int epoch)
 {
-  if (epoch != last_epoch) {
+  if (epoch > last_epoch) {
+    last_value = (epoch - last_epoch == 1) ? value : 0.0;
     value = 0.0;
     last_epoch = epoch;
   }
@@ -33,18 +34,20 @@ double dirfrag_pot_load_t::pot_load(int epoch)
 {
   if (epoch > 0)
     _update_epoch(epoch);
-  return value;
+  return last_value;
 }
 
 void dirfrag_pot_load_t::encode(bufferlist& bl) const
 {
   ::encode(value, bl);
+  ::encode(last_value, bl);
   ::encode(last_epoch, bl);
 }
 
 void dirfrag_pot_load_t::decode(bufferlist::iterator & bl)
 {
   ::decode(value, bl);
+  ::decode(last_value, bl);
   ::decode(last_epoch, bl);
 }
 

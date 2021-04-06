@@ -1901,10 +1901,12 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
         for (CDir * petal : petals) {
           brothers_count += petal->get_num_any();
           if (petal->is_auth())
-    	brothers_auth_count += petal->get_num_any();
+	    brothers_auth_count += petal->get_num_any();
         }
+	double adj_auth_single = brothers_auth_count ? (adj_auth_pot / brothers_auth_count) : 0.0;
+	double adj_all_single = brothers_count ? (adj_all_pot / brothers_count) : 0.0;
         for (CDir * petal : petals) {
-          update_dir_pot_recur(petal, level - 1, adj_auth_pot * petal->get_num_any() / brothers_count, adj_all_pot * petal->get_num_any() / brothers_auth_count);
+          update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
         }
       }
     }
@@ -2050,8 +2052,10 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     }
     dir->pot_cached.clear(beat_epoch);
     
+    double adj_auth_single = brothers_auth_count ? (cached_load / brothers_auth_count) : 0.0;
+    double adj_all_single = brothers_count ? (cached_load / brothers_count) : 0.0;
     for (CDir * petal : petals) {
-      update_dir_pot_recur(petal, level, cached_load * petal->get_num_any() / brothers_count, cached_load * petal->get_num_any() / brothers_auth_count);
+      update_dir_pot_recur(petal, level, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
     }
     return ret;
   };

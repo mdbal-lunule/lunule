@@ -4633,4 +4633,7 @@ pair<double, double> CInode::alpha_beta(int epoch)
   return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 
+int CInode::last_hit_amount(){
+  return last_newoldhit[0] + last_newoldhit[1];
+}
 MEMPOOL_DEFINE_OBJECT_FACTORY(CInode, co_inode, mds_co);

@@ -1228,12 +1228,27 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) start to migration by simple policy "<< dendl;
   set<CDir*> already_exporting;
   rebalance_time = ceph_clock_now();
+  
+  int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
+  int sample_count = 0;
+  set<CDir*> count_candidates;
+  mds->mdcache->get_fullauth_subtrees(count_candidates);
+  for (set<CDir*>::iterator pot = count_candidates.begin(); pot != count_candidates.end(); ++pot) {
+      if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
+      sample_count += (*pot)->get_inode()->last_hit_amount();
+  }
+
+  if(sample_count <= 0.2* g_conf->mds_bal_presetmax || my_mds_load <= 0.2* g_conf->mds_bal_presetmax ){
+        dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
+        return ;
+  }
+
+
 
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
     
-    int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
     double ex_load = it.target_export_percent * my_mds_load;
 
     dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;

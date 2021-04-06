@@ -2197,7 +2197,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     double adj_auth_single = brothers_auth_count ? (cached_load / brothers_auth_count) : 0.0;
     double adj_all_single = brothers_count ? (cached_load / brothers_count) : 0.0;
     for (CDir * petal : petals) {
-      update_dir_pot_recur(petal, level, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+      update_dir_pot_recur(petal, level + 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
     }
     return ret;
   };

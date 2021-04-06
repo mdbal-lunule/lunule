@@ -2217,12 +2217,12 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
   set<CDir *> authsubs;
   mds->mdcache->get_auth_subtrees(authsubs);
-  dout(0) << __func__ << " authsubtrees:" << dendl;
+  /*dout(0) << __func__ << " authsubtrees:" << dendl;
   for (CDir * dir : authsubs) {
     string s;
     dir->get_inode()->make_path_string(s);
     dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
-  }
+  }/*
 }
 
 

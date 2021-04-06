@@ -2226,7 +2226,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     string s;
     dir->get_inode()->make_path_string(s);
     dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
-  }/*
+  }*/
 }
 
 

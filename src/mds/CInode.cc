@@ -4582,7 +4582,7 @@ int CInode::get_authsubtree_size_slow(int epoch)
       subtree_size += subtree->get_authsubtree_size_slow(epoch);
     }
   }
-  dout(0) << __func__ << " epoch=" << epoch << " name=" << (parent ? parent->name : "root") << " subtreesize=" << subtree_size << dendl;
+  //dout(0) << __func__ << " epoch=" << epoch << " name=" << (parent ? parent->name : "root") << " subtreesize=" << subtree_size << dendl;
   return subtree_size;
 }
 
@@ -4630,7 +4630,7 @@ pair<double, double> CInode::alpha_beta(int epoch)
   int total = oldcnt + newcnt;
   double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
   double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
-  dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
+  //dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
   return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }
 

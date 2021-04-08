@@ -34,13 +34,14 @@ void dirfrag_pot_load_t::clear(int epoch)
 {
   _update_epoch(epoch);
   value = 0;
+  last_value = 0;
 }
 
-double dirfrag_pot_load_t::pot_load(int epoch)
+double dirfrag_pot_load_t::pot_load(int epoch, bool use_current)
 {
   if (epoch > 0)
     _update_epoch(epoch);
-  return last_value;
+  return use_current ? value : last_value;
 }
 
 void dirfrag_pot_load_t::encode(bufferlist& bl) const

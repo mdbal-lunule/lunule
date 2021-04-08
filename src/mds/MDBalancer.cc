@@ -2176,11 +2176,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   if (newold < 1)	return;
 
   dir = origdir;
-<<<<<<< HEAD
   //dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
-=======
-  dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
->>>>>>> origin/lunule1.2-alpha-beta-dev
   //CDentry* dn = dir->get_inode()->get_parent_dn();
   //dout(0) << __func__ << " DEBUG2 dir=" << (dn ? dn->get_name() : "/") << dendl;
   // adjust potential load for brother dirfrags

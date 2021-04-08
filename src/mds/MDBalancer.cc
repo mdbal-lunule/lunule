@@ -2288,25 +2288,14 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
-<<<<<<< HEAD
-  if (!mds->mdcache->root){
-    dout(0) << __func__ << " dont calculate mds load " << dendl;
-    return 0.0;}
-    
-=======
   if (!mds->mdcache->root)
     return 0.0;
->>>>>>> remotes/origin/lunule1.2-alpha-beta
 
   //vector<string> betastrs;
   //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
   pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
-<<<<<<< HEAD
-  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
-=======
   dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
->>>>>>> remotes/origin/lunule1.2-alpha-beta
   //if (result.second < 0) {
   //  dout(7) << __func__ << " Illegal beta detected" << dendl;
   //  for (string s : betastrs) {

@@ -2180,10 +2180,6 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   //dout(0) << __func__ << " DEBUG2 dir=" << (dn ? dn->get_name() : "/") << dendl;
   // adjust potential load for brother dirfrags
   auto update_dir_pot = [this](CDir * dir, int level = 0) -> bool {
-<<<<<<< HEAD
-  //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
-=======
->>>>>>> remotes/origin/lunule1.2-alpha-beta
     CInode * in = dir->inode;
     int i;
     for (i = 0; i < level; i++) {

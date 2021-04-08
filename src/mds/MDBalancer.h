@@ -96,8 +96,10 @@ private:
     double my_if;
     double my_urgency;
     mds_rank_t whoami;
+    int my_iops;
     bool is_bigger;
   }imbalance_summary_t;
+
   static bool sortImporter (imbalance_summary_t i,imbalance_summary_t j) { return (i.my_if > j.my_if); };
 
   //set up the rebalancing targets for export and do one if the

@@ -568,6 +568,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
 
         (*my_if_it).my_if = sqrt((my_IOPS-avg_IOPS)*(my_IOPS-avg_IOPS)/(cluster_size-1)) /(sqrt(cluster_size)*avg_IOPS);
         (*my_if_it).my_urgency = 1/(1+pow(exp(1), 5-10*(my_IOPS/g_conf->mds_bal_presetmax)));
+        (*my_if_it).my_iops = my_IOPS ? my_IOPS :1;
         (*my_if_it).whoami = temp_pos;
         if(my_IOPS>avg_IOPS){
           (*my_if_it).is_bigger = true;
@@ -619,7 +620,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << *p << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount)};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount*((my_imbalance_vector[*p].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[*p].my_iops))};
               mds_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
@@ -636,7 +637,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << 0 << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount)};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount*(my_imbalance_vector[0].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[0].my_iops)};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
@@ -2029,38 +2030,43 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
   if (dir->inode->get_parent_dn())
     dir->inode->make_path_string(s);
   dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
-  if (level > 0) {
-    int brocount = 0;
-    for (auto it = dir->begin(); it != dir->end(); it++)
-      brocount += dir->get_authsubtree_size_slow(beat_epoch);
-    for (auto it = dir->begin(); it != dir->end(); it++) {
-      int my_subtree_size = dir->get_authsubtree_size_slow(beat_epoch);
-      double my_adj_auth_pot = adj_auth_pot * my_subtree_size / brocount;
-      double my_adj_all_pot = adj_all_pot * my_subtree_size / brocount;
-      CDentry::linkage_t * de_l = it->second->get_linkage();
-      if (de_l && de_l->is_primary()) {
-        CInode * in = de_l->get_inode();
-        list<CDir *> petals;
-        in->get_dirfrags(petals);
-        int brothers_count = 0;
-        int brothers_auth_count = 0;
-        for (CDir * petal : petals) {
-          brothers_count += petal->get_num_any();
-          if (petal->is_auth())
-	    brothers_auth_count += petal->get_num_any();
-        }
-	double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
-	double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
-        for (CDir * petal : petals) {
-          update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
-        }
+
+  // adjust myself
+  dir->pot_all.adjust(adj_all_pot, beat_epoch);
+  if (dir->is_auth())
+    dir->pot_auth.adjust(adj_auth_pot, beat_epoch);
+
+  int brocount = 0;
+  if (level <= 0)	goto finish;
+
+  for (auto it = dir->begin(); it != dir->end(); it++)
+    brocount += dir->get_authsubtree_size_slow(beat_epoch);
+  for (auto it = dir->begin(); it != dir->end(); it++) {
+    int my_subtree_size = dir->get_authsubtree_size_slow(beat_epoch);
+    double my_adj_auth_pot = adj_auth_pot * my_subtree_size / brocount;
+    double my_adj_all_pot = adj_all_pot * my_subtree_size / brocount;
+    CDentry::linkage_t * de_l = it->second->get_linkage();
+    if (de_l && de_l->is_primary()) {
+      CInode * in = de_l->get_inode();
+      list<CDir *> petals;
+      in->get_dirfrags(petals);
+      int brothers_count = 0;
+      int brothers_auth_count = 0;
+      for (CDir * petal : petals) {
+        brothers_count += petal->get_num_any();
+        if (petal->is_auth())
+          brothers_auth_count += petal->get_num_any();
+      }
+      double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
+      double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
+      for (CDir * petal : petals) {
+        update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
       }
     }
-  } else if (!level) {
-    dir->pot_all.adjust(adj_all_pot, beat_epoch);
-    if (dir->is_auth())
-      dir->pot_auth.adjust(adj_auth_pot, beat_epoch);
   }
+
+finish:
+  dout(0) << __func__ << " after adjust, path=" << s << " level=" << level << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
 }
 
 
@@ -2169,9 +2175,15 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   if (newold < 1)	return;
 
   dir = origdir;
+  dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
+  //CDentry* dn = dir->get_inode()->get_parent_dn();
+  //dout(0) << __func__ << " DEBUG2 dir=" << (dn ? dn->get_name() : "/") << dendl;
   // adjust potential load for brother dirfrags
   auto update_dir_pot = [this](CDir * dir, int level = 0) -> bool {
+<<<<<<< HEAD
   //auto (*update_dir_pot)(CInode * in) = [this](CInode * in) -> void {
+=======
+>>>>>>> remotes/origin/lunule1.2-alpha-beta
     CInode * in = dir->inode;
     int i;
     for (i = 0; i < level; i++) {
@@ -2192,7 +2204,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     }
 
     dir->pot_cached.inc(beat_epoch);
-    double cached_load = dir->pot_cached.pot_load(beat_epoch);
+    double cached_load = dir->pot_cached.pot_load(beat_epoch, true);
     if (cached_load < brothers_auth_count) {
       return false;
     }
@@ -2201,7 +2213,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     double adj_auth_single = brothers_auth_count ? (cached_load / brothers_auth_count) : 0.0;
     double adj_all_single = brothers_count ? (cached_load / brothers_count) : 0.0;
     for (CDir * petal : petals) {
-      update_dir_pot_recur(petal, level + 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+      update_dir_pot_recur(petal, level, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
     }
     return ret;
   };
@@ -2225,14 +2237,14 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     dir->pot_all.inc(beat_epoch);
   }
 
-  set<CDir *> authsubs;
-  mds->mdcache->get_auth_subtrees(authsubs);
-  /*dout(0) << __func__ << " authsubtrees:" << dendl;
-  for (CDir * dir : authsubs) {
-    string s;
-    dir->get_inode()->make_path_string(s);
-    dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
-  }*/
+  //set<CDir *> authsubs;
+  //mds->mdcache->get_auth_subtrees(authsubs);
+  //dout(0) << __func__ << " authsubtrees:" << dendl;
+  //for (CDir * dir : authsubs) {
+  //  string s;
+  //  dir->get_inode()->make_path_string(s);
+  //  dout(0) << __func__ << "  path: " << s << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
+  //}
 }
 
 
@@ -2280,16 +2292,25 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
 {
+<<<<<<< HEAD
   if (!mds->mdcache->root){
     dout(0) << __func__ << " dont calculate mds load " << dendl;
     return 0.0;}
     
+=======
+  if (!mds->mdcache->root)
+    return 0.0;
+>>>>>>> remotes/origin/lunule1.2-alpha-beta
 
   //vector<string> betastrs;
   //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
   pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
   double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
+<<<<<<< HEAD
   dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+=======
+  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+>>>>>>> remotes/origin/lunule1.2-alpha-beta
   //if (result.second < 0) {
   //  dout(7) << __func__ << " Illegal beta detected" << dendl;
   //  for (string s : betastrs) {

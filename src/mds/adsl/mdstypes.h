@@ -16,7 +16,7 @@ struct dirfrag_pot_load_t {
   void add(dirfrag_pot_load_t & anotherpot);
   void clear(int epoch);
 
-  double pot_load(int epoch = -1);
+  double pot_load(int epoch = -1, bool use_current = false);
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator & bl);
 };

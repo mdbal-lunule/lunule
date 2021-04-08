@@ -642,7 +642,10 @@ public:
   inline int maybe_update_epoch(int epoch = -1);
   int hit(bool check_epoch = false, int epoch = -1);
   pair<double, double> alpha_beta(int epoch = -1);
+<<<<<<< HEAD
   int last_hit_amount();
+=======
+>>>>>>> remotes/origin/lunule1.2-alpha-beta
 
   // friends
   friend class Server;

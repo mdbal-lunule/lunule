@@ -4630,6 +4630,19 @@ pair<double, double> CInode::alpha_beta(int epoch)
   int total = oldcnt + newcnt;
   double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
   double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
+  //dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
+  return std::make_pair<double, double>(std::move(alpha), std::move(beta));
+}
+
+pair<double, double> CInode::alpha_beta(int epoch)
+{
+  // calculate subtree size
+  int subtree_size = get_authsubtree_size_slow(epoch);
+  maybe_update_epoch(epoch);
+  int oldcnt = last_newoldhit[0], newcnt = last_newoldhit[1];
+  int total = oldcnt + newcnt;
+  double alpha = total ? ((double) oldcnt / (oldcnt + newcnt)) : 0.0;
+  double beta = subtree_size ? ((double) (subtree_size - oldcnt) / subtree_size) : 0.0;
   dout(0) << "CInode::alpha_beta oldcnt=" << oldcnt << " newcnt=" << newcnt << " alpha=" << alpha << " beta=" << beta << dendl;
   return std::make_pair<double, double>(std::move(alpha), std::move(beta));
 }

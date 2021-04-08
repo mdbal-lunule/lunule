@@ -259,6 +259,7 @@ double mds_load_t::mds_pot_load(bool auth, int epoch)
 
 double mds_load_t::mds_load(double alpha, double beta, int epoch, bool is_auth, MDBalancer * bal)
 {
+
   if (is_auth)
     //return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_auth.pot_load(epoch);
     return alpha * auth.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate) + beta * pot_all.pot_load(epoch);
@@ -2029,7 +2030,7 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
   string s = "/";
   if (dir->inode->get_parent_dn())
     dir->inode->make_path_string(s);
-  dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
+  //dout(0) << __func__ << " path=" << s << " level=" << level << " adj_auth=" << adj_auth_pot << " adj_all=" << adj_all_pot << dendl;
 
   // adjust myself
   dir->pot_all.adjust(adj_all_pot, beat_epoch);
@@ -2066,7 +2067,7 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
   }
 
 finish:
-  dout(0) << __func__ << " after adjust, path=" << s << " level=" << level << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
+  //dout(0) << __func__ << " after adjust, path=" << s << " level=" << level << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
 }
 
 
@@ -2175,7 +2176,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
   if (newold < 1)	return;
 
   dir = origdir;
-  dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
+  //dout(0) << __func__ << " DEBUG dir=" << dir->get_path() << dendl;
   //CDentry* dn = dir->get_inode()->get_parent_dn();
   //dout(0) << __func__ << " DEBUG2 dir=" << (dn ? dn->get_name() : "/") << dendl;
   // adjust potential load for brother dirfrags
@@ -2287,15 +2288,23 @@ void MDBalancer::handle_mds_failure(mds_rank_t who)
 }
 
 double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
-{
+{ 
   if (!mds->mdcache->root)
-    return 0.0;
+  return 0.0;
+  double dir_load_level0 = 0.0f;
+  set<CDir*> count_candidates;
+  mds->mdcache->get_fullauth_subtrees(count_candidates);
+  for (set<CDir*>::iterator pot = count_candidates.begin(); pot != count_candidates.end(); ++pot) {
+      if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
+      dir_load_level0 += (*pot)->get_load(this);
+  }
 
   //vector<string> betastrs;
   //pair<double, double> result = req_tracer.alpha_beta("/", total, betastrs);
   pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
-  double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
-  dout(7) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  //double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
+  double ret = dir_load_level0;
+  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " dir_load_level0= " << dir_load_level0 << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
   //if (result.second < 0) {
   //  dout(7) << __func__ << " Illegal beta detected" << dendl;
   //  for (string s : betastrs) {

@@ -3426,7 +3426,8 @@ double CDir::get_load(MDBalancer * bal)
   string s;
   inode->make_path_string(s);
   vector<string> betastrs;
-  pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested, betastrs);
+  //pair<double, double> alpha_beta = bal->req_tracer.alpha_beta(s, num_dentries_auth_subtree_nested, betastrs);
+  pair<double, double> alpha_beta = inode->alpha_beta(s, num_dentries_auth_subtree_nested, betastrs);
   double alpha = alpha_beta.first;
   double beta = alpha_beta.second;
   double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);

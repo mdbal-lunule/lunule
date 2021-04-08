@@ -71,11 +71,11 @@ using std::vector;
 #define MIN_OFFLOAD 0.1   // point at which i stop trying, close enough
 
 #define COLDFIRST_DEPTH 2
-#define MAX_EXPORT_SIZE 40
+//#define MAX_EXPORT_SIZE 10000
 
 /* This function DOES put the passed message before returning */
 
-#define LUNULE_DEBUG_LEVEL 0
+#define LUNULE_DEBUG_LEVEL 7
 
 int MDBalancer::proc_message(Message *m)
 {
@@ -615,7 +615,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
 	  if (*p == 0)continue;
         dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.01) I'm: " <<  my_imbalance_vector[*p].whoami << " " <<  my_imbalance_vector[*p].my_if << " " << my_imbalance_vector[*p].is_bigger << dendl;
           vector<migration_decision_t> mds_decision;
-          //std::sort (my_imbalance_vector.begin(), my_imbalance_vector.end(), sortImporter);
+          std::sort (my_imbalance_vector.begin()+1, my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
@@ -1242,7 +1242,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   }
 
   if(sample_count <= g_conf->mds_bal_presetmax || my_mds_load <= 0.2* g_conf->mds_bal_presetmax ){
-        dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
+        dout(0) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
         return ;
   }
 
@@ -1254,7 +1254,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
     
     double ex_load = it.target_export_percent * my_mds_load;
 
-    dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
+    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
     
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
@@ -1267,12 +1267,12 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       //find_exports(*pot, ex_load, exports, have, already_exporting);
       find_exports_wrapper(*pot, ex_load, exports, have, already_exporting, target);
       if(have>= 0.8*ex_load )break;
-      if(exports.size() - count>=MAX_EXPORT_SIZE)
+      /*if(exports.size() - count>=MAX_EXPORT_SIZE)
       {
         count = exports.size();
-  dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << " find: " << exports.size() << " last: " << count << " leave " << target << exports << dendl;       
+  dout(0) << " MDS_IFBEAT " << " find: " << exports.size() << " last: " << count << " leave " << target << exports << dendl;       
         break;
-      }
+      }*/
       //if (have > amount-MIN_OFFLOAD)break;
     }
 
@@ -1582,7 +1582,8 @@ void MDBalancer::find_exports_coldfirst(CDir *dir,
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
   double need = amount - have;
   double needmax = need * g_conf->mds_bal_need_max;
-  double needmin = need * g_conf->mds_bal_need_min;
+  //double needmin = need * g_conf->mds_bal_need_min;
+  double needmin = need ;
 
   multimap<double, CDir*> warm;
   int migcoldcount = 0;
@@ -1684,8 +1685,8 @@ void MDBalancer::find_exports(CDir *dir,
     return;   // good enough!
   double needmax = need * g_conf->mds_bal_need_max;
   double needmin = need * g_conf->mds_bal_need_min;
-  double midchunk = need * g_conf->mds_bal_midchunk;
-  double minchunk = need * g_conf->mds_bal_minchunk;
+  double midchunk = need * g_conf->mds_bal_midchunk*0.1;
+  double minchunk = need * g_conf->mds_bal_minchunk*0.1;
 
   list<CDir*> bigger_rep, bigger_unrep;
   multimap<double, CDir*> smaller;
@@ -1739,11 +1740,11 @@ void MDBalancer::find_exports(CDir *dir,
 
       if (pop < minchunk) continue;
 
-      if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+      /*if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
       {
         dout(LUNULE_DEBUG_LEVEL) << " [WAN]: got" << exports.size() - my_exports << " targets, enough! " << *dir << dendl;
         return;
-      }
+      }*/
 
       // lucky find?
       if (pop > needmin && pop < needmax) {
@@ -1784,16 +1785,16 @@ void MDBalancer::find_exports(CDir *dir,
 
     dout(7) << "   taking smaller " << *(*it).second << dendl;
     #ifdef MDS_MONITOR
-    dout(7) << " MDS_MONITOR " << __func__ << "(3) taking smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
+    dout(0) << " MDS_MONITOR " << __func__ << "(3) taking smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
     #endif
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
-    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+    /*if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
-  }
+  }*/
     if (have > needmin)
       return;
   }
@@ -1814,11 +1815,11 @@ void MDBalancer::find_exports(CDir *dir,
     dout(15) << "   descending into " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
     //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
-    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+    /*if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
-  }
+  }*/
     if (have > needmin)
       return;
   }
@@ -1834,11 +1835,11 @@ void MDBalancer::find_exports(CDir *dir,
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
-    if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+    /*if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
-  }
+  }*/
     if (have > needmin)
       return;
   }
@@ -2061,12 +2062,13 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
       double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
       double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
       for (CDir * petal : petals) {
-        update_dir_pot_recur(petal, level - 1, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+        update_dir_pot_recur(petal, level - 1, 0.05*petal->get_num_any() * adj_auth_single, 0.05* petal->get_num_any() * adj_all_single);
       }
     }
   }
 
 finish:
+  return;
   //dout(0) << __func__ << " after adjust, path=" << s << " level=" << level << " pot_auth=" << dir->pot_auth << " pot_all=" << dir->pot_all << dendl;
 }
 
@@ -2222,8 +2224,12 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     return;
   }
 
-  if (update_dir_pot(dir, 1))
+  if (update_dir_pot(dir, 1)){
+    //if (update_pot_auth)
+    //  dir->pot_auth.inc(beat_epoch);
+    //dir->pot_all.inc(beat_epoch);
     dir = dir->inode->get_parent_dn()->get_dir();
+  }
 
   while (dir->inode->get_parent_dn()) {
     dir = dir->inode->get_parent_dn()->get_dir();

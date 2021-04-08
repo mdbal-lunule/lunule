@@ -3433,8 +3433,8 @@ double CDir::get_load(MDBalancer * bal)
   double pop = pop_auth_subtree.meta_load(bal->rebalance_time, bal->mds->mdcache->decayrate);
   //double pop = pop_auth.pot_load(bal->beat_epoch);
   double pot = pot_auth.pot_load(bal->beat_epoch);
-  dout(0) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " raw_pop " << pop << " oldhit " << this->inode->last_newoldhit[0] << " pot " << pot << dendl;
-  if (beta < 0) {
+  //dout(0) << "CDir::get_load dir " << *this << " alpha " << alpha << " beta " << beta <<  " raw_pop " << pop << " old_and_oldhit " << (this->inode->last_newoldhit[0] + this->inode->last_newoldhit[1])  << " pot " << pot << dendl;
+  /*if (beta < 0) {
     dout(0) << __func__ << " Illegal beta detected: subtree path=" << s << " size=" << num_dentries_auth_subtree_nested << " betacnt=" << betastrs.size() << dendl;
     dout(0) << __func__ << "  Subtrees:" << dendl;
     for (auto it = items.begin(); it != items.end(); it++) {
@@ -3447,8 +3447,8 @@ double CDir::get_load(MDBalancer * bal)
     for (string s : betastrs) {
       dout(0) << __func__ << "   " << s << dendl;
     }
-  }
-  return alpha * this->inode->last_newoldhit[0] + beta * pot;
+  }*/
+  return alpha * (this->inode->last_newoldhit[0] + this->inode->last_newoldhit[1]) + beta * pot;
   //return alpha * pop * 0.1 + beta * pot;
 }
 

@@ -3448,7 +3448,7 @@ double CDir::get_load(MDBalancer * bal)
       dout(0) << __func__ << "   " << s << dendl;
     }
   }*/
-  return alpha * (this->inode->last_newoldhit[0] + this->inode->last_newoldhit[1]) + beta * pot;
+  return alpha * (this->inode->last_newoldhit[0] ) + beta * pot;
   //return alpha * pop * 0.1 + beta * pot;
 }
 

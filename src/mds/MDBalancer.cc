@@ -476,7 +476,7 @@ void MDBalancer::send_heartbeat()
 void MDBalancer::handle_ifbeat(MIFBeat *m){
   mds_rank_t who = mds_rank_t(m->get_source().num());
   mds_rank_t whoami = mds->get_nodeid();
-  double simple_migration_amount = 0.1;
+  double simple_migration_amount = 0.2;
   double simple_if_threshold = g_conf->mds_bal_ifthreshold;
 
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
@@ -644,14 +644,15 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
             }
           }
-          simple_determine_rebalance(my_decision);
-          
           if(urgency<=0.1){
             dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
           }else{
             dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+            if(beat_epoch%2==0){
             mds->mdcache->migrator->clear_export_queue();  
+            }
           }
+          simple_determine_rebalance(my_decision);
         }
       }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2) imbalance_factor is low: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << dendl;
@@ -663,10 +664,11 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   }else{
     double get_if_value = m->get_IFvaule();
     if(get_if_value>=simple_if_threshold){
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
-      simple_determine_rebalance(m->get_decision());
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
       mds->mdcache->migrator->clear_export_queue();  
+      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
+      simple_determine_rebalance(m->get_decision());
+      
     }else{
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is low: " << m->get_IFvaule() << dendl;
       //mds->mdcache->migrator->clear_export_queue();
@@ -1241,7 +1243,7 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       sample_count += (*pot)->get_inode()->last_hit_amount();
   }
 
-  if(sample_count <= g_conf->mds_bal_presetmax || my_mds_load <= 0.2* g_conf->mds_bal_presetmax ){
+  if(sample_count <= 5 || my_mds_load <= 0.1 ){
         dout(0) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
         return ;
   }
@@ -1684,9 +1686,11 @@ void MDBalancer::find_exports(CDir *dir,
   if (need < amount * g_conf->mds_bal_min_start)
     return;   // good enough!
   double needmax = need * g_conf->mds_bal_need_max;
+  //double needmin = need * g_conf->mds_bal_need_min;
   double needmin = need * g_conf->mds_bal_need_min;
-  double midchunk = need * g_conf->mds_bal_midchunk*0.1;
-  double minchunk = need * g_conf->mds_bal_minchunk*0.1;
+  double midchunk = need * g_conf->mds_bal_midchunk;
+  //double minchunk = need * g_conf->mds_bal_minchunk*0.1;
+  double minchunk =0.5;
 
   list<CDir*> bigger_rep, bigger_unrep;
   multimap<double, CDir*> smaller;
@@ -1776,12 +1780,9 @@ void MDBalancer::find_exports(CDir *dir,
        it != smaller.rend();
        ++it) {
 
-    #ifdef MDS_MONITOR
-    dout(7) << " MDS_MONITOR " << __func__ << "(3) See smaller DIR " << *((*it).second) << " pop " << (*it).first << dendl;
-    #endif
-
-    if ((*it).first < midchunk)
+    /*if ((*it).first < midchunk)
       break;  // try later
+    */
 
     dout(7) << "   taking smaller " << *(*it).second << dendl;
     #ifdef MDS_MONITOR
@@ -1796,21 +1797,22 @@ void MDBalancer::find_exports(CDir *dir,
     return;
   }*/
     if (have > needmin)
-      return;
+      break;
+      //break;
   }
 
   // apprently not enough; drill deeper into the hierarchy (if non-replicated)
-  /*for (list<CDir*>::iterator it = bigger_unrep.begin();
+  for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
        ++it) {
   dynamically_fragment(*it, amount);
-  }*/
+  }
 
   for (list<CDir*>::iterator it = bigger_unrep.begin();
        it != bigger_unrep.end();
        ++it) {
     #ifdef MDS_MONITOR
-  dout(7) << " MDS_MONITOR " << __func__ << "(4) descending into bigger DIR " << **it << dendl;
+  dout(0) << " MDS_MONITOR " << __func__ << "(4) descending into bigger DIR " << **it << dendl;
   #endif
     dout(15) << "   descending into " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
@@ -1820,7 +1822,7 @@ void MDBalancer::find_exports(CDir *dir,
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
   }*/
-    if (have > needmin)
+    if (have > need)
       return;
   }
 
@@ -1840,7 +1842,7 @@ void MDBalancer::find_exports(CDir *dir,
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
   }*/
-    if (have > needmin)
+    if (have > need)
       return;
   }
 
@@ -1854,7 +1856,7 @@ void MDBalancer::find_exports(CDir *dir,
     dout(7) << "   descending into replicated " << **it << dendl;
     find_exports(*it, amount, exports, have, already_exporting);
     //find_exports_wrapper(*it, amount, exports, have, already_exporting, target);
-    if (have > needmin)
+    if (have > need)
       return;
   }
 

@@ -1238,11 +1238,24 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   
   int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
   int sample_count = 0;
+  double level0_load = 0;
+  double level2_load=0;
   set<CDir*> count_candidates;
   mds->mdcache->get_fullauth_subtrees(count_candidates);
+
+  
+  
   for (set<CDir*>::iterator pot = count_candidates.begin(); pot != count_candidates.end(); ++pot) {
       if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
       sample_count += (*pot)->get_inode()->last_hit_amount();
+      level0_load += (*pot)->get_load(this);
+
+      list<CDir*> level1_dfls;
+      CInode *in_level1=(*pot)->get_inode();
+      in_level1->get_dirfrags(level1_dfls);
+      for (auto child_dir : level1_dfls) {
+      level2_load+=  child_dir->get_load(this);
+    }
   }
 
   /*if(sample_count <= 5 || my_mds_load <= 0.1 ){
@@ -1256,9 +1269,9 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
     
-    double ex_load = it.target_export_percent * my_mds_load;
+    double ex_load = it.target_export_percent * level0_load;
 
-    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send " << it.target_export_percent << " * " <<  my_mds_load  << " load to " << target << dendl;
+    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send level0 " << level0_load << " * " << it.target_export_percent << " while mds_load is " <<  my_mds_load << " level2: " <<  level2_load << " ,to " << target << dendl;
     
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
@@ -2217,7 +2230,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
     dir->pot_cached.inc(beat_epoch);
     double cached_load = dir->pot_cached.pot_load(beat_epoch, true);
-    if (cached_load < brothers_auth_count) {
+    if (cached_load < 300) {
       return false;
     }
     dir->pot_cached.clear(beat_epoch);

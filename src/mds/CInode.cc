@@ -4594,9 +4594,9 @@ inline int CInode::maybe_update_epoch(int epoch)
     last_newoldhit[0] = newoldhit[0];
     last_newoldhit[1] = newoldhit[1];
     newoldhit[0] = newoldhit[1] = 0;
-    beat_epoch = epoch;
   }
-  return ret;
+  beat_epoch = epoch;
+  return ret < 0 ? 2 : ret;
 }
 
 int CInode::hit(bool check_epoch, int epoch)
@@ -4604,8 +4604,8 @@ int CInode::hit(bool check_epoch, int epoch)
   if (check_epoch && maybe_update_epoch(epoch) < 0)
     return -2;
 
-  if (!is_auth())
-    return -2;
+  //if (!is_auth())
+  //  return -2;
   
   int newold = hitcount.hit();
   if (newold < 0)	return newold;

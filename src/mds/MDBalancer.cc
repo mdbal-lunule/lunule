@@ -480,7 +480,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   double simple_if_threshold = g_conf->mds_bal_ifthreshold;
 
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) get ifbeat " << m->get_beat() << " from " << who << " to " << whoami << " load: " << m->get_load() << " IF: " << m->get_IFvaule() << dendl;
-
+  
   if (!mds->is_active())
     goto out;
 
@@ -553,7 +553,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       double avg_IOPS = std::accumulate(std::begin(IOPSvector), std::end(IOPSvector), 0.0)/IOPSvector.size(); 
       double max_IOPS = *max_element(IOPSvector.begin(), IOPSvector.end());
       double sum_quadratic = 0.0;
-      unsigned max_exporter_count = 5;
+      unsigned max_exporter_count = 3;
       double my_if_threshold = simple_if_threshold/min(cluster_size,max_exporter_count);
       int importer_count = 0;
 
@@ -587,7 +587,7 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
       importer_count = min(importer_count, 5);
 
       //simple_migration_amount = simple_migration_total_amount / importer_count;
-      simple_migration_amount = 0.1;
+      simple_migration_amount = 0.25;
 
       double stdev_IOPS = sqrt(sum_quadratic/(IOPSvector.size()-1));
       double imbalance_degree = 0.0;
@@ -647,10 +647,10 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
           if(urgency<=0.1){
             dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
           }else{
-            dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+            /*dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
             if(beat_epoch%2==0){
             mds->mdcache->migrator->clear_export_queue();  
-            }
+            }*/
           }
           simple_determine_rebalance(my_decision);
         }
@@ -664,8 +664,8 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
   }else{
     double get_if_value = m->get_IFvaule();
     if(get_if_value>=simple_if_threshold){
-      dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
-      mds->mdcache->migrator->clear_export_queue();  
+      //dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+      //mds->mdcache->migrator->clear_export_queue();  
       dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (3.1) Imbalance Factor is high enough: " << m->get_IFvaule() << dendl;
       simple_determine_rebalance(m->get_decision());
       
@@ -1229,6 +1229,8 @@ int MDBalancer::mantle_prep_rebalance()
 }
 
 void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migration_decision){
+
+  mds->mdcache->migrator->clear_export_queue();  
 
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (1) start to migration by simple policy "<< dendl;
   set<CDir*> already_exporting;

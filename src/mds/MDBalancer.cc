@@ -1790,14 +1790,37 @@ void MDBalancer::find_exports(CDir *dir,
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;
 
   // grab some sufficiently big small items
-  multimap<double,CDir*>::reverse_iterator it;
-  for (it = smaller.rbegin();
+  multimap<double,CDir*>::reverse_iterator it=smaller.rbegin();
+  multimap<double,CDir*>::iterator big_it=smaller.begin();
+  
+  while(it!= smaller.rend() && big_it!= smaller.end()){
+    
+    if(it.base()==big_it)break;
+    //dout(7) << "   taking smaller " << *(*it).second << " and s_smaller " << *(*big_it).second << dendl;
+    #ifdef MDS_MONITOR
+    dout(0) << " MDS_MONITOR " << __func__ << "(3) taking smaller DIR " << *((*it).second) << " pop " << (*it).first << " and s_smaller " <<  *(*big_it).second << " pop " << (*big_it).first << dendl;
+    #endif
+    exports.push_back((*it).second);
+    already_exporting.insert((*it).second);
+    have += (*it).first;
+
+    exports.push_back((*big_it).second);
+    already_exporting.insert((*big_it).second);
+    have += (*big_it).first;
+
+    it++;
+    if(it.base()==big_it)break;
+    big_it++;
+    if (have > needmin)
+      break;
+
+  }
+
+  /*for (it = smaller.rbegin();
        it != smaller.rend();
        ++it) {
 
-    /*if ((*it).first < midchunk)
-      break;  // try later
-    */
+    if ((*it).first < midchunk)break;  // try later
 
     dout(7) << "   taking smaller " << *(*it).second << dendl;
     #ifdef MDS_MONITOR
@@ -1806,15 +1829,16 @@ void MDBalancer::find_exports(CDir *dir,
     exports.push_back((*it).second);
     already_exporting.insert((*it).second);
     have += (*it).first;
-    /*if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
+    
+    //if(exports.size() - my_exports>=MAX_EXPORT_SIZE)
   {
     dout(LUNULE_DEBUG_LEVEL) << " [WAN]: enough! " << *dir << dendl;
     return;
-  }*/
+  }
     if (have > needmin)
       break;
       //break;
-  }
+  }*/
 
   // apprently not enough; drill deeper into the hierarchy (if non-replicated)
   /*for (list<CDir*>::iterator it = bigger_unrep.begin();
@@ -1939,6 +1963,7 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
   CInode *in = dir->get_inode();
   //dynamically_fragment(dir, amount);
   list<CDir*> dfls;
+  list<CDir*> little_dfls;
   switch (wlt) {
     /*
     case WLT_SCAN:
@@ -1964,7 +1989,18 @@ void MDBalancer::find_exports_wrapper(CDir *dir,
       
       in->get_dirfrags(dfls);
       for (auto child_dir : dfls) {
-      find_exports(child_dir, amount, exports, have, already_exporting, target);
+        child_dir->get_inode()->get_dirfrags(little_dfls);
+      for (auto little_child_dir : little_dfls)
+      {
+        if (little_child_dir->get_load(this) > 0.1* amount)
+        {
+          dout(0) << __func__ << " Root: diving to little child" << little_child_dir << " from " << child_dir << dendl;
+          find_exports(little_child_dir, amount, exports, have, already_exporting, target);
+        }else{
+          dout(0) << __func__ << " cant diving to little child" << little_child_dir << " load: " << little_child_dir->get_load(this) << " vs " << amount << dendl;
+        }
+      }
+      
     }
 
       
@@ -2336,7 +2372,7 @@ double MDBalancer::calc_mds_load(mds_load_t load, bool auth)
   pair<double, double> result = mds->mdcache->root->alpha_beta(beat_epoch);
   //double ret = load.mds_load(result.first, result.second, beat_epoch, auth, this);
   double ret = dir_load_level0;
-  dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " dir_load_level0= " << dir_load_level0 << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
+  //dout(0) << __func__ << " load=" << load << " alpha=" << result.first << " beta=" << result.second << " dir_load_level0= " << dir_load_level0 << " pop=" << load.mds_pop_load() << " pot=" << load.mds_pot_load(auth, beat_epoch) << " result=" << ret << dendl;
   //if (result.second < 0) {
   //  dout(7) << __func__ << " Illegal beta detected" << dendl;
   //  for (string s : betastrs) {

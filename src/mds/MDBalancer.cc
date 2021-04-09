@@ -621,7 +621,8 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << *p << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
             if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount*((my_imbalance_vector[*p].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[*p].my_iops))};
+              //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount*((my_imbalance_vector[*p].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[*p].my_iops))};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount)};
               mds_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
@@ -638,7 +639,8 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
               //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << 0 << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount*(my_imbalance_vector[0].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[0].my_iops)};
+              //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount*(my_imbalance_vector[0].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[0].my_iops)};
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount)};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
@@ -728,8 +730,13 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
 
     mds->mdcache->show_subtrees();
   }
+  mds_import_map[ who ] = m->get_import_map();
 
-  {
+  //if imbalance factor is enabled, won't use old migration
+  
+  if(g_conf->mds_bal_ifenable == 0){
+
+    {
     // set mds_load[who]
     mds_load_map_t::value_type val(who, m->get_load());
     pair < mds_load_map_t::iterator, bool > rval (mds_load.insert(val));
@@ -737,11 +744,7 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
       rval.first->second = val.second;
     }
   }
-  mds_import_map[ who ] = m->get_import_map();
 
-  //if imbalance factor is enabled, won't use old migration
-  
-  if(g_conf->mds_bal_ifenable == 0){
     unsigned cluster_size = mds->get_mds_map()->get_num_in_mds();
     if (mds_load.size() == cluster_size) {
       #ifdef MDS_MONITOR
@@ -1243,10 +1246,10 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
       sample_count += (*pot)->get_inode()->last_hit_amount();
   }
 
-  if(sample_count <= 5 || my_mds_load <= 0.1 ){
+  /*if(sample_count <= 5 || my_mds_load <= 0.1 ){
         dout(0) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
         return ;
-  }
+  }*/
 
 
 

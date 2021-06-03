@@ -6,7 +6,7 @@ void dirfrag_pot_load_t::_update_epoch(int epoch)
 {
   if (epoch > last_epoch) {
     last_value = (epoch - last_epoch == 1) ? value : 0.0;
-    value = 0.0;
+    value = value/4;
     last_epoch = epoch;
   }
 }

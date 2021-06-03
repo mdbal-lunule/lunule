@@ -2253,7 +2253,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
     dir->pot_cached.inc(beat_epoch);
     double cached_load = dir->pot_cached.pot_load(beat_epoch, true);
-    if (cached_load < 200) {
+    if (cached_load < 100) {
       return false;
     }
     dir->pot_cached.clear(beat_epoch);
@@ -2263,7 +2263,7 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
     double adj_auth_dir = bro_auth_dir_count ? cached_load/bro_auth_dir_count : 0.0;
     double adj_all_dir = bro_dir_count ? cached_load/bro_dir_count : 0.0;
     for (CDir * petal : petals) {
-      update_dir_pot_recur(petal, level, 0.2*(1+petal->get_num_any()) * adj_auth_single + 0.8*adj_auth_dir, 0.2*(1+petal->get_num_any()) * adj_all_single + 0.8*adj_all_dir);
+      update_dir_pot_recur(petal, level, 0.5*(1+petal->get_num_any()) * adj_auth_single + 0.5*adj_auth_dir, 0.5*(1+petal->get_num_any()) * adj_all_single + 0.5*adj_all_dir);
     }
     return ret;
   };

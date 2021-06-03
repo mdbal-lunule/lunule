@@ -473,6 +473,7 @@ OPTION(mds_bal_fragment_fast_factor, OPT_FLOAT) // multiple of size_max that tri
 OPTION(mds_bal_idle_threshold, OPT_FLOAT)
 OPTION(mds_bal_presetmax, OPT_INT)
 OPTION(mds_bal_migmode, OPT_INT)
+OPTION(mds_bal_partition_mode, OPT_INT)
 OPTION(mds_bal_ifthreshold, OPT_FLOAT)
 OPTION(mds_bal_ifenable, OPT_INT)
 OPTION(mds_bal_max, OPT_INT)

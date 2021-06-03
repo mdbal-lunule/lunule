@@ -76,6 +76,7 @@ using std::vector;
 /* This function DOES put the passed message before returning */
 
 #define LUNULE_DEBUG_LEVEL 7
+#define LUNULE_MIG_AMOUNT 0.25
 
 int MDBalancer::proc_message(Message *m)
 {
@@ -606,51 +607,75 @@ void MDBalancer::handle_ifbeat(MIFBeat *m){
 
       
 
-      if(imbalance_factor>=simple_if_threshold){
-        dout(0) << " MDS_IFBEAT " << __func__ << " (2.1) imbalance_factor is high enough: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << " start to send " << dendl;
+            if(imbalance_factor>=simple_if_threshold){
+        dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.1) imbalance_factor is high enough: " << imbalance_factor << " imbalance_degree: " << imbalance_degree << " urgency: " << urgency << " start to send " << dendl;
         
         set<mds_rank_t> up;
         mds->get_mds_map()->get_up_mds_set(up);
+        
+        std::sort (my_imbalance_vector.begin()+1, my_imbalance_vector.end(), sortImporter);
+
         for (set<mds_rank_t>::iterator p = up.begin(); p != up.end(); ++p) {
 	  if (*p == 0)continue;
+        simple_migration_amount = LUNULE_MIG_AMOUNT;
         dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.01) I'm: " <<  my_imbalance_vector[*p].whoami << " " <<  my_imbalance_vector[*p].my_if << " " << my_imbalance_vector[*p].is_bigger << dendl;
           vector<migration_decision_t> mds_decision;
-          std::sort (my_imbalance_vector.begin()+1, my_imbalance_vector.end(), sortImporter);
           if((max_pos == my_imbalance_vector[*p].whoami || my_imbalance_vector[*p].my_if>my_if_threshold) && my_imbalance_vector[*p].is_bigger){
           int max_importer_count = 0;
+          int send_num = my_imbalance_vector[*p].whoami;
+
             for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << *p << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
-            if((*my_im_it).whoami != *p &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[*p]),static_cast<float>(simple_migration_amount*((my_imbalance_vector[*p].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[*p].my_iops))};
+            if((*my_im_it).whoami != send_num &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=my_if_threshold  || (*my_im_it).whoami == min_pos )){
+              
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.111), try match mds" << send_num << ", load: " << IOPSvector[send_num] << " with " << (*my_im_it).whoami << " if: " <<  (*my_im_it).my_if << " is_bigger: " << (*my_im_it).is_bigger << " IOPSvector[(*my_im_it).whoami]: " << IOPSvector[(*my_im_it).whoami] << " (*my_im_it).my_iops: " << (*my_im_it).my_iops << dendl;
+              
+              if(IOPSvector[send_num]<=1){
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " [ERR] Wrong load! of 0:" << IOPSvector[send_num] << dendl;
+                return;
+              }
+
+              float decision_percent = static_cast<float>(simple_migration_amount*((IOPSvector[*p]-IOPSvector[(*my_im_it).whoami])/IOPSvector[*p]));
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(decision_percent*load_vector[*p]), decision_percent};
               mds_decision.push_back(temp_decision);
               max_importer_count ++;
               dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.1) decision: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
+              dout(LUNULE_DEBUG_LEVEL) << __func__ << "[Decision] Send decision: (*my_im_it).whoami is: "<< (*my_im_it).whoami<< " send_num is: " << send_num << " amount: " << temp_decision.target_export_percent << " target: " << temp_decision.target_import_mds << dendl;
+              simple_migration_amount = simple_migration_amount/2;
+              if(simple_migration_amount<=my_if_threshold)break;
             }
           }
-          send_ifbeat(*p, imbalance_factor, mds_decision);
+          send_ifbeat(send_num, imbalance_factor, mds_decision);
           }
         }
 
         if( (max_pos == my_imbalance_vector[0].whoami || my_imbalance_vector[0].my_if>my_if_threshold) && my_imbalance_vector[0].is_bigger){
           vector<migration_decision_t> my_decision;
+          simple_migration_amount = LUNULE_MIG_AMOUNT;
           int max_importer_count = 0;
           for (vector<imbalance_summary_t>::iterator my_im_it = my_imbalance_vector.begin();my_im_it!=my_imbalance_vector.end() && (max_importer_count < max_exporter_count);my_im_it++){
             if((*my_im_it).whoami != whoami &&(*my_im_it).is_bigger == false && ((*my_im_it).my_if >=(my_if_threshold) || (*my_im_it).whoami == min_pos )){
-              //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*load_vector[0])};
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match" << 0 << ": " << " with " << (*my_im_it).whoami << " " <<  (*my_im_it).my_if << " " << (*my_im_it).is_bigger << dendl;
-              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>((load_vector[0]-avg_load)/importer_count),static_cast<float>(simple_migration_amount*(my_imbalance_vector[0].my_iops-(*my_im_it).my_iops)/my_imbalance_vector[0].my_iops)};
+              //migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(simple_migration_amount*IOPSvector[0])};
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.011), try match mds" << 0 << ", load: " << IOPSvector[0] << " with " << (*my_im_it).whoami << " if: " <<  (*my_im_it).my_if << " is_bigger: " << (*my_im_it).is_bigger << " IOPSvector[(*my_im_it).whoami]: " << IOPSvector[(*my_im_it).whoami] << " (*my_im_it).my_iops: " << (*my_im_it).my_iops << dendl;
+              if(IOPSvector[0]<=1){
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " [ERR] Wrong load! of 0:" << IOPSvector[0] << dendl;
+                return;
+              }
+              float decision_percent = static_cast<float>(simple_migration_amount*((IOPSvector[0]-IOPSvector[(*my_im_it).whoami])/IOPSvector[0]));
+              migration_decision_t temp_decision = {(*my_im_it).whoami,static_cast<float>(decision_percent*load_vector[0]),decision_percent};
               my_decision.push_back(temp_decision);
               max_importer_count ++;
-              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0: " << temp_decision.target_import_mds << " " << temp_decision.target_export_load  << temp_decision.target_export_percent<< dendl;
+              dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " (2.2.2) decision of mds0 to: " << temp_decision.target_import_mds << ", send: " << temp_decision.target_export_load << " percent: " << temp_decision.target_export_percent<< dendl;
+              simple_migration_amount = simple_migration_amount/2;
+              if(simple_migration_amount<=my_if_threshold)break;
             }
           }
           if(urgency<=0.1){
             dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "wird bug, dont clear" <<dendl;
           }else{
-            /*dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
+            dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << "new epoch, clear_export_queue" <<dendl;
             if(beat_epoch%2==0){
             mds->mdcache->migrator->clear_export_queue();  
-            }*/
+            }
           }
           simple_determine_rebalance(my_decision);
         }
@@ -1681,12 +1706,18 @@ void MDBalancer::find_exports(CDir *dir,
   double needmin = need * g_conf->mds_bal_need_min;
   double midchunk = need * g_conf->mds_bal_midchunk;
   //double minchunk = need * g_conf->mds_bal_minchunk*0.1;
-  double minchunk =0.5;
-
   list<CDir*> bigger_rep, bigger_unrep;
   multimap<double, CDir*> smaller;
-
   double dir_pop = dir->get_load(this);
+  
+  double minchunk =0.5;
+  int skip_pos = 0;
+  int frag_mod_dest = 0;
+  unsigned int hash_frag = 0;
+  unsigned int frag_num = 0;
+  std::hash<unsigned> hash_frag_func;
+  int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in " << *dir << " pop: " << dir_pop << " Vel: " << dir->pop_auth_subtree.show_meta_vel() << " need " << need << " (" << needmin << " - " << needmax << ")" << dendl;
   //dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " Vel: " << dir->pop_auth_subtree.show_meta_vel()<<dendl;
   dout(7) << " find_exports in " << dir_pop << " " << *dir << " need " << need << " (" << needmin << " - " << needmax << ")" << dendl;
@@ -1759,8 +1790,30 @@ void MDBalancer::find_exports(CDir *dir,
 	  bigger_rep.push_back(subdir);
 	else
 	  bigger_unrep.push_back(subdir);
-      } else
-	smaller.insert(pair<double,CDir*>(pop, subdir));
+      } else{
+        if(g_conf->mds_bal_frag == 0){
+    //hash mode
+    frag_num = subdir->dirfrag().frag.value() >> (24 - subdir->dirfrag().frag.bits());
+    hash_frag = hash_frag_func(subdir->dirfrag().ino + frag_num);
+    frag_mod_dest = hash_frag%cluster_size;
+    
+    if(frag_mod_dest == target ){
+        smaller.insert(pair<double,CDir*>(pop, subdir));
+        skip_pos = 0;
+      }else{
+        skip_pos +=1;
+        if(skip_pos>=(cluster_size+1)){
+        smaller.insert(pair<double,CDir*>(pop, subdir));
+        skip_pos = 0;
+        }
+      }
+  }else{
+    //raw mode
+    smaller.insert(pair<double,CDir*>(pop, subdir));
+
+  }
+
+      }
     }
   }
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;

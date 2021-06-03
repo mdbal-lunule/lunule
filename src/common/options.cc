@@ -6099,7 +6099,6 @@ std::vector<Option> get_mds_options() {
     Option("mds_bal_partition_mode", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(0)
     .set_description(""),
-    mds_bal_partition_mode
 
     Option("mds_bal_ifthreshold", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
     .set_default(0.08)

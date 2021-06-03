@@ -1096,6 +1096,36 @@ void Migrator::export_sessions_flushed(CDir *dir, uint64_t tid)
     export_go(dir);     // start export.
 }
 
+class C_MDC_ExportWaitWrlock : public MigratorContext {
+  CDir *ex;   // dir i'm exporting
+  uint64_t tid;
+public:
+  C_MDC_ExportWaitWrlock(Migrator *m, CDir *e, uint64_t t) :
+  MigratorContext(m), ex(e), tid(t){
+          assert(ex != NULL);
+        }
+  void finish(int r) override {
+    if (r >= 0)
+      mig->export_frozen(ex, tid);
+  }
+};
+
+class C_MDC_Retry_Export : public MigratorContext {
+  CDir *ex;   // dir i'm exporting
+  uint64_t tid;
+public:
+  C_MDC_Retry_Export(Migrator *m, CDir *e, uint64_t t) :
+  MigratorContext(m), ex(e), tid(t){
+          assert(ex != NULL);
+        }
+  void finish(int r) override {
+    if (r >= 0){
+      //dout(0) << __func__ <<" resend export msg: " << *ex << " to " << tid << dendl;
+      mig->export_dir_nicely(ex, tid);
+    }
+  }
+};
+
 void Migrator::export_frozen(CDir *dir, uint64_t tid)
 {
   dout(7) << "export_frozen on " << *dir << dendl;
@@ -1123,7 +1153,7 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
   get_export_lock_set(dir, rdlocks);
   if ((diri->is_auth() && diri->is_frozen()) ||
       !mds->locker->can_rdlock_set(rdlocks) ||
-      !diri->filelock.can_wrlock(-1) ||
+      //!diri->filelock.can_wrlock(-1) ||
       !diri->nestlock.can_wrlock(-1)) {
     dout(7) << "export_dir couldn't acquire all needed locks, failing. "
 	    << *dir << dendl;
@@ -1137,7 +1167,30 @@ void Migrator::export_frozen(CDir *dir, uint64_t tid)
     dir->state_clear(CDir::STATE_EXPORTING);
     cache->maybe_send_pending_resolves();
     return;
+  }else if (!diri->filelock.can_wrlock(-1))
+  {
+    if( g_conf->mds_bal_migmode == 2 ){
+      diri->filelock.add_waiter(SimpleLock::WAIT_WR|SimpleLock::WAIT_STABLE, new C_MDC_ExportWaitWrlock(this, dir, it->second.tid));
+      return;
+    }else if (g_conf->mds_bal_migmode == 1)
+    {
+      diri->filelock.add_waiter(SimpleLock::WAIT_WR|SimpleLock::WAIT_STABLE, new C_MDC_Retry_Export(this, dir, it->second.tid));
+    }
+
+    dout(7) << "export_dir couldn't acquire filelock "
+	    << *dir << dendl;
+    // .. unwind ..
+    dir->unfreeze_tree();
+    cache->try_subtree_merge(dir);
+
+    mds->send_message_mds(new MExportDirCancel(dir->dirfrag(), it->second.tid), it->second.peer);
+    export_state.erase(it);
+
+    dir->state_clear(CDir::STATE_EXPORTING);
+    cache->maybe_send_pending_resolves();
+    return;
   }
+  
 
   it->second.mut = new MutationImpl();
   if (diri->is_auth())

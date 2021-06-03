@@ -1238,40 +1238,16 @@ void MDBalancer::simple_determine_rebalance(vector<migration_decision_t>& migrat
   
   int my_mds_load= calc_mds_load(get_load(rebalance_time), true);
   int sample_count = 0;
-  double level0_load = 0;
-  double level2_load=0;
   set<CDir*> count_candidates;
   mds->mdcache->get_fullauth_subtrees(count_candidates);
-
-  
-  
-  for (set<CDir*>::iterator pot = count_candidates.begin(); pot != count_candidates.end(); ++pot) {
-      if ((*pot)->is_freezing() || (*pot)->is_frozen() || (*pot)->get_inode()->is_stray()) continue;
-      sample_count += (*pot)->get_inode()->last_hit_amount();
-      level0_load += (*pot)->get_load(this);
-
-      list<CDir*> level1_dfls;
-      CInode *in_level1=(*pot)->get_inode();
-      in_level1->get_dirfrags(level1_dfls);
-      for (auto child_dir : level1_dfls) {
-      level2_load+=  child_dir->get_load(this);
-    }
-  }
-
-  /*if(sample_count <= 5 || my_mds_load <= 0.1 ){
-        dout(0) << " MDS_IFBEAT " << __func__ << " (1.1) sample count " << sample_count << " or my load " << my_mds_load << " to less!" << dendl;
-        return ;
-  }*/
-
-
 
   for (auto &it : migration_decision){
     mds_rank_t target = it.target_import_mds;
     //double ex_load = it.target_export_load;
     
-    double ex_load = it.target_export_percent * level0_load;
+    double ex_load = it.target_export_percent * my_mds_load;
 
-    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send level0 " << level0_load << " * " << it.target_export_percent << " while mds_load is " <<  my_mds_load << " level2: " <<  level2_load << " ,to " << target << dendl;
+    dout(0) << " MDS_IFBEAT " << __func__ << " (2) want send my_mds_load " << my_mds_load << " * " << it.target_export_percent << " ,to " << target << dendl;
     
     set<CDir*> candidates;
     mds->mdcache->get_fullauth_subtrees(candidates);
@@ -2114,18 +2090,24 @@ void MDBalancer::update_dir_pot_recur(CDir * dir, int level, double adj_auth_pot
       CInode * in = de_l->get_inode();
       list<CDir *> petals;
       in->get_dirfrags(petals);
-      int brothers_count = 0;
-      int brothers_auth_count = 0;
+      int brothers_count = 1;
+      int brothers_auth_count = 1;
+      int bro_dir_count = 1;
+      int bro_auth_dir_count = 1;
       for (CDir * petal : petals) {
-        brothers_count += petal->get_num_any();
-        if (petal->is_auth())
-          brothers_auth_count += petal->get_num_any();
+        brothers_count += (1+petal->get_num_any());
+        bro_dir_count +=1;
+        if (petal->is_auth()){
+          brothers_auth_count += (1+petal->get_num_any());
+          bro_auth_dir_count +=1;
+        }
       }
       double adj_auth_single = brothers_auth_count ? (my_adj_auth_pot / brothers_auth_count) : 0.0;
       double adj_all_single = brothers_count ? (my_adj_all_pot / brothers_count) : 0.0;
+      double adj_auth_dir = bro_auth_dir_count ? my_adj_auth_pot/bro_auth_dir_count : 0.0;
+      double adj_all_dir = bro_dir_count ? my_adj_all_pot/bro_dir_count : 0.0;
       for (CDir * petal : petals) {
-        update_dir_pot_recur(petal, level - 1, 0.05*petal->get_num_any() * adj_auth_single, 0.05* petal->get_num_any() * adj_all_single);
-      }
+        update_dir_pot_recur(petal, level - 1, 0.5*(1+petal->get_num_any()) * adj_auth_single + 0.5*adj_auth_dir, 0.5*(1+petal->get_num_any()) * adj_all_single + 0.5*adj_all_dir);      }
     }
   }
 
@@ -2256,25 +2238,32 @@ void MDBalancer::hit_dir(utime_t now, CDir *dir, int type, int who, double amoun
 
     list<CDir *> petals;
     in->get_dirfrags(petals);
-    int brothers_count = 0;
-    int brothers_auth_count = 0;
+    int brothers_count = 1;
+    int brothers_auth_count = 1;
+    int bro_dir_count = 1;
+    int bro_auth_dir_count = 1;
     for (CDir * petal : petals) {
-      brothers_count += petal->get_num_any();
-      if (petal->is_auth())
-	brothers_auth_count += petal->get_num_any();
+       brothers_count += petal->get_num_any()+1;
+      bro_dir_count +=1;
+      if (petal->is_auth()){
+        brothers_auth_count += petal->get_num_any()+1;
+        bro_auth_dir_count +=1;
+    }
     }
 
     dir->pot_cached.inc(beat_epoch);
     double cached_load = dir->pot_cached.pot_load(beat_epoch, true);
-    if (cached_load < 300) {
+    if (cached_load < 200) {
       return false;
     }
     dir->pot_cached.clear(beat_epoch);
     
     double adj_auth_single = brothers_auth_count ? (cached_load / brothers_auth_count) : 0.0;
     double adj_all_single = brothers_count ? (cached_load / brothers_count) : 0.0;
+    double adj_auth_dir = bro_auth_dir_count ? cached_load/bro_auth_dir_count : 0.0;
+    double adj_all_dir = bro_dir_count ? cached_load/bro_dir_count : 0.0;
     for (CDir * petal : petals) {
-      update_dir_pot_recur(petal, level, petal->get_num_any() * adj_auth_single, petal->get_num_any() * adj_all_single);
+      update_dir_pot_recur(petal, level, 0.2*(1+petal->get_num_any()) * adj_auth_single + 0.8*adj_auth_dir, 0.2*(1+petal->get_num_any()) * adj_all_single + 0.8*adj_all_dir);
     }
     return ret;
   };

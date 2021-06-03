@@ -224,7 +224,8 @@ protected:
   friend class C_MDS_ImportDirLoggedStart;
   friend class C_MDS_ImportDirLoggedFinish;
   friend class C_M_LoggedImportCaps;
-
+  friend class C_MDC_ExportWaitWrlock;
+  friend class C_MDC_Retry_Export;
   // bystander
   void handle_export_notify(MExportDirNotify *m);
 

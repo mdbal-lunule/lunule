@@ -1711,12 +1711,12 @@ void MDBalancer::find_exports(CDir *dir,
   double dir_pop = dir->get_load(this);
   
   double minchunk =0.5;
-  int skip_pos = 0;
   int frag_mod_dest = 0;
   unsigned int hash_frag = 0;
   unsigned int frag_num = 0;
   std::hash<unsigned> hash_frag_func;
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  int skip_pos = cluster_size;
   
   dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " find in " << *dir << " pop: " << dir_pop << " Vel: " << dir->pop_auth_subtree.show_meta_vel() << " need " << need << " (" << needmin << " - " << needmax << ")" << dendl;
   //dout(LUNULE_DEBUG_LEVEL) << " MDS_IFBEAT " << __func__ << " Vel: " << dir->pop_auth_subtree.show_meta_vel()<<dendl;

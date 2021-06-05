@@ -113,18 +113,6 @@ private:
   void send_heartbeat();
   void send_ifbeat(mds_rank_t target, double if_beate_value, vector<migration_decision_t>& migration_decision);
   void handle_heartbeat(MHeartbeat *m);
-  void find_exports_coldfirst_trigger(CDir *dir,
-                              double amount,
-                              list<CDir*>& exports,
-                              double& have, mds_rank_t dest,
-                              set<CDir*>& already_exporting);
-  void find_exports_coldfirst(CDir *dir,
-                    double amount,
-                    list<CDir*>& exports,
-                    double& have,
-                    set<CDir*>& already_exporting,
-                    mds_rank_t dest,
-                    int descend_depth);
   void handle_ifbeat(MIFBeat *m);
   void simple_determine_rebalance(vector<migration_decision_t>& migration_decision);
   void find_exports(CDir *dir,

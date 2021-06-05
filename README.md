@@ -2,7 +2,7 @@
 
 #### Install Lunule
 
-Lunule is implemented in CephFS, so if you have a CephFS cluster already, install Lunule is very convenient, you just need execute the following instructions.
+Lunule is implemented atop CephFS and easy to replace the existing CephFS's metadata service. Run the following commands in MDS to install Lunule .
 
 ```bash
 git clone git@github.com:shao-xy/Lunule.git
@@ -13,11 +13,11 @@ sudo make install -j16
 sudo systemctl restart ceph-mds.target
 ```
 
-If CephFS isn't exist in your cluster now, you could refer [here](#install_ceph)
+If CephFS doesn't exist in your cluster, refer [here](#install_ceph)
 
 #### Run CNN workload
 
-Add the following content to */etc/ceph/ceph.conf* and restart your MDS service and start single MDS service.
+Add the following content to */etc/ceph/ceph.conf* and restart with a single MDS service.
 
 ```
 [mds]
@@ -34,7 +34,7 @@ mds bal ifthreshold = 0.075
 client cache size = 0
 ```
 
-Copy your dataset into CephFS, you could find ILSVRC2012 dataset at [here](https://image-net.org/download.php) 
+Copy [ILSVRC2012](https://image-net.org/download.php)  dataset into cluster.
 
 ```
 cp -r ./imagenet-dataset /mnt/your_ceph_client_path/
@@ -52,24 +52,24 @@ pip3 install contextvars numpy mxnet opencv-python --user
 git clone git@github.com:apache/incubator-mxnet.git
 ```
 
- To reproduce the experiment in our paper, you could set multiple MDS 
+ Activate multiple MDS
 
 ```
 ceph mds set_max_mds 5
 ```
 
-and than run the following command in 100 process at the same time
+and then run the following commands 100 times concurrently
 
 ```
 #run CNN testcase
 python3 ./incubator-mxnet/tools/im2rec.py --list --recursive /mnt/your_ceph_client_path/record /mnt/your_ceph_client_path/imagenet-dataset
 ```
 
-#### <span id="install_ceph">Install CephFS on Centos from scratch</span>
+#### <span id="install_ceph">Install CephFS on CentOS from scratch</span>
 
 Here is a small example about install CephFS on a single node.
 
-First, update yum repository and install ceph-deploy
+First, update YUM repository and install `ceph-deploy`.
 
 ```
 [ceph@node1 ~]$ sudo yum install -y yum-utils && sudo yum-config-manager --add-repo https://dl.fedoraproject.org/pub/epel/7/x86_64/ && sudo yum install --nogpgcheck -y epel-release && sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7 && sudo rm /etc/yum.repos.d/dl.fedoraproject.org*
@@ -91,13 +91,13 @@ priority=1
 [ceph@node1 ~]$ sudo setenforce 0
 ```
 
-Create cluster and change ceph.conf
+Then create a cluster and modify `ceph.conf`
 
 ```
 [ceph@node1 ~]$ mkdir ced
 [ceph@node1 ~]$ cd ced
 [ceph@node1 ced]$ ceph-deploy new node1
-[ceph@node1 ced]$ cat ceph.conf
+[ceph@node1 ced]$ cat << EOF > ceph.conf
 [global]
 fsid = db2824e2-bfb7-4990-b907-8bc1f895bcd5
 mon_initial_members = node1
@@ -108,6 +108,8 @@ auth_client_required = cephx
 osd pool default size = 1
 osd crush chooseleaf type = 0
 public network = 10.0.0.0/24
+
+EOF
 ```
 
 Install Ceph
@@ -133,7 +135,7 @@ Grant access
 
 ```
 [ceph@node1 ced]$ sudo chown ceph:ceph -R /etc/ceph
-[ceph@node1 ced]$ cp ceph.client.admin.keyring /etc/ceph/
+[ceph@node1 ced]$ ceph-deploy admin node1
 [ceph@node1 ced]$ ceph -s
 cluster:
   id:     0f66f8f9-a669-4aef-a222-7326d94512e8
@@ -149,13 +151,12 @@ data:
   pgs:
 ```
 
-Now Ceph is installed in your machine, than install CephFS
+Now Ceph is installed  successfully, then install CephFS
 
 Install MDS and create your CephFS
 
 ```
-[ceph@node1 ced]$[ceph@node1 ced]$ceph-deploy mds create node1
-[ceph@node1 ced]$ceph osd pool create md 64 64
+[ceph@node1 ced]$ ceph-deploy mds create node1
 [ceph@node1 ced]$ ceph osd pool create md 64 64
 pool 'md' created
 [ceph@node1 ced]$ ceph osd pool create d 64 64

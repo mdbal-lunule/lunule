@@ -141,7 +141,7 @@ cluster:
   id:     0f66f8f9-a669-4aef-a222-7326d94512e8
   health: HEALTH_OK
 services:
-  mon: 1 daemons, quorum node16
+  mon: 1 daemons, quorum node1
   mgr: node1(active)
   osd: 1 osds: 1 up, 1 in
 data:
@@ -168,9 +168,9 @@ cluster:
   id:     0f66f8f9-a669-4aef-a222-7326d94512e8
   health: HEALTH_OK
 services:
-  mon: 1 daemons, quorum node16
+  mon: 1 daemons, quorum node1
   mgr: node1(active)
-  mds: myceph-1/1/1 up  {0=node16=up:active}
+  mds: myceph-1/1/1 up  {0=node1=up:active}
   osd: 1 osds: 1 up, 1 in
 data:
   pools:   2 pools, 128 pgs

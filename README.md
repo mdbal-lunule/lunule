@@ -1,203 +1,180 @@
-# Ceph - a scalable distributed storage system
-
-Please see http://ceph.com/ for current info.
-
-
-## Contributing Code
-
-Most of Ceph is licensed under the LGPL version 2.1.  Some
-miscellaneous code is under BSD-style license or is public domain.
-The documentation is licensed under Creative Commons
-Attribution Share Alike 3.0 (CC-BY-SA-3.0).  There are a handful of headers
-included here that are licensed under the GPL.  Please see the file
-COPYING for a full inventory of licenses by file.
-
-Code contributions must include a valid "Signed-off-by" acknowledging
-the license for the modified or contributed file.  Please see the file
-SubmittingPatches.rst for details on what that means and on how to
-generate and submit patches.
-
-We do not require assignment of copyright to contribute code; code is
-contributed under the terms of the applicable license.
-
-
-## Checking out the source
-
-You can clone from github with
-
-	git clone git@github.com:ceph/ceph
-
-or, if you are not a github user,
-
-	git clone git://github.com/ceph/ceph
-
-Ceph contains many git submodules that need to be checked out with
-
-	git submodule update --init --recursive
-
-
-## Build Prerequisites
-
-The list of Debian or RPM packages dependencies can be installed with:
-
-	./install-deps.sh
-
-
-## Building Ceph
-
-Note that these instructions are meant for developers who are
-compiling the code for development and testing.  To build binaries
-suitable for installation we recommend you build deb or rpm packages,
-or refer to the `ceph.spec.in` or `debian/rules` to see which
-configuration options are specified for production builds.
-
-Prerequisite: CMake 2.8.11
-
-Build instructions:
-
-	./do_cmake.sh
-	cd build
-	make
-
-This assumes you make your build dir a subdirectory of the ceph.git
-checkout. If you put it elsewhere, just replace `..` in do_cmake.sh with a
-correct path to the checkout.
-
-To build only certain targets use:
-
-        make [target name]
-
-To install:
-
-        make install
- 
-### CMake Options
-
-If you run the `cmake` command by hand, there are many options you can
-set with "-D". For example the option to build the RADOS Gateway is
-defaulted to ON. To build without the RADOS Gateway:
-
-        cmake -DWITH_RADOSGW=OFF [path to top level ceph directory]
-
-Another example below is building with debugging and alternate locations 
-for a couple of external dependencies:
-
-        cmake -DLEVELDB_PREFIX="/opt/hyperleveldb" -DOFED_PREFIX="/opt/ofed" \
-        -DCMAKE_INSTALL_PREFIX=/opt/accelio -DCMAKE_C_FLAGS="-O0 -g3 -gdwarf-4" \
-        ..
-
-To view an exhaustive list of -D options, you can invoke `cmake` with:
-
-        cmake -LH
-
-If you often pipe `make` to `less` and would like to maintain the
-diagnostic colors for errors and warnings (and if your compiler
-supports it), you can invoke `cmake` with:
-
-        cmake -DDIAGNOSTICS_COLOR=always ..
-
-Then you'll get the diagnostic colors when you execute:
-
-        make | less -R
-
-Other available values for 'DIAGNOSTICS_COLOR' are 'auto' (default) and
-'never'.
-
-
-## Building a source tarball
-
-To build a complete source tarball with everything needed to build from
-source and/or build a (deb or rpm) package, run
-
-	./make-dist
-
-This will create a tarball like ceph-$version.tar.bz2 from git.
-(Ensure that any changes you want to include in your working directory
-are committed to git.)
-
-
-## Running a test cluster
-
-To run a functional test cluster,
-
-	cd build
-	make vstart        # builds just enough to run vstart
-	../src/vstart.sh -d -n -x -l
-	./bin/ceph -s
-
-Almost all of the usual commands are available in the bin/ directory.
-For example,
-
-	./bin/rados -p rbd bench 30 write
-	./bin/rbd create foo --size 1000
-
-To shut down the test cluster,
-
-	../src/stop.sh
-
-To start or stop individual daemons, the sysvinit script can be used:
-
-	./bin/init-ceph restart osd.0
-	./bin/init-ceph stop
-
-
-## Running unit tests
-
-To build and run all tests (in parallel using all processors), use `ctest`:
-
-	cd build
-	make
-	ctest -j$(nproc)
-
-(Note: Many targets built from src/test are not run using `ctest`.
-Targets starting with "unittest" are run in `make check` and thus can
-be run with `ctest`. Targets starting with "ceph_test" can not, and should
-be run by hand.)
-
-When failures occur, look in build/Testing/Temporary for logs.
-
-To build and run all tests and their dependencies without other
-unnecessary targets in Ceph:
-
-        cd build
-        make check -j$(nproc)
-
-To run an individual test manually, run `ctest` with -R (regex matching):
-
-	ctest -R [regex matching test name(s)]
-
-(Note: `ctest` does not build the test it's running or the dependencies needed
-to run it)
-
-To run an individual test manually and see all the tests output, run
-`ctest` with the -V (verbose) flag:
-
-	ctest -V -R [regex matching test name(s)]
-
-To run an tests manually and run the jobs in parallel, run `ctest` with 
-the `-j` flag:
-
-	ctest -j [number of jobs]
-
-There are many other flags you can give `ctest` for better control
-over manual test execution. To view these options run:
-
-	man ctest
-
-
-## Building the Documentation
-
-### Prerequisites
-
-The list of package dependencies for building the documentation can be
-found in `doc_deps.deb.txt`:
-
-	sudo apt-get install `cat doc_deps.deb.txt`
-
-### Building the Documentation
-
-To build the documentation, ensure that you are in the top-level
-`/ceph` directory, and execute the build script. For example:
-
-	admin/build-doc
+### **Lunule: An Agile and Judicious Metadata Load Balancer for CephFS**
+
+#### Install Lunule
+
+Lunule is implemented in CephFS, so if you have a CephFS cluster already, install Lunule is very convenient, you just need execute the following instructions.
+
+```bash
+git clone git@github.com:shao-xy/Lunule.git
+cd Lunule/build
+make -j16
+sudo make install -j16
+# restart mds service
+sudo systemctl restart ceph-mds.target
+```
+
+If CephFS isn't exist in your cluster now, you could refer [here](#install_ceph)
+
+#### Run CNN workload
+
+Add the following content to */etc/ceph/ceph.conf* and restart your MDS service and start single MDS service.
+
+```
+[mds]
+mds cache memory limit = 42949672960
+mds reconnect timeout = 180
+mds session timeout = 180
+
+#Lunule configuration
+mds bal ifenable = 1
+mds bal presetmax = 8000
+mds bal ifthreshold = 0.075
+
+[client]
+client cache size = 0
+```
+
+Copy your dataset into CephFS, you could find ILSVRC2012 dataset at [here](https://image-net.org/download.php) 
+
+```
+cp -r ./imagenet-dataset /mnt/your_ceph_client_path/
+mkdir /mnt/your_ceph_client_path/record
+```
+
+Download MXNet tools
+
+```
+#install dependency
+pip3 install scikit-build --user
+pip3 install contextvars numpy mxnet opencv-python --user
+
+#clone mxnet test tools
+git clone git@github.com:apache/incubator-mxnet.git
+```
+
+ To reproduce the experiment in our paper, you could set multiple MDS 
+
+```
+ceph mds set_max_mds 5
+```
+
+and than run the following command in 100 process at the same time
+
+```
+#run CNN testcase
+python3 ./incubator-mxnet/tools/im2rec.py --list --recursive /mnt/your_ceph_client_path/record /mnt/your_ceph_client_path/imagenet-dataset
+```
+
+#### <span id="install_ceph">Install CephFS on Centos from scratch</span>
+
+Here is a small example about install CephFS on a single node.
+
+First, update yum repository and install ceph-deploy
+
+```
+[ceph@node1 ~]$ sudo yum install -y yum-utils && sudo yum-config-manager --add-repo https://dl.fedoraproject.org/pub/epel/7/x86_64/ && sudo yum install --nogpgcheck -y epel-release && sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7 && sudo rm /etc/yum.repos.d/dl.fedoraproject.org*
+[ceph@node1 ~]$ sudo vim /etc/yum.repos.d/ceph.repo
+[ceph@node1 ~]$ sudo cat /etc/yum.repos.d/ceph.repo
+[ceph-noarch]
+name=Ceph noarch packages
+baseurl=http://download.ceph.com/rpm-luminous/el7/noarch
+enabled=1
+gpgcheck=1
+type=rpm-md
+gpgkey=https://download.ceph.com/keys/release.asc
+priority=1
+[ceph@node1 ~]$ sudo yum update && sudo yum install ceph-deploy
+[ceph@node1 ~]$ sudo yum install ntp ntpdate ntp-doc openssh-server
+[ceph@node1 ~]$ sudo systemctl stop firewalld
+[ceph@node1 ~]$ sudo iptables -A INPUT -i ib0 -p tcp -s 10.0.0.1/24 --dport 6789 -j ACCEPT
+[ceph@node1 ~]$ sudo sed -i 's/SELINUX=.*/SELINUX=disabled/' /etc/selinux/config
+[ceph@node1 ~]$ sudo setenforce 0
+```
+
+Create cluster and change ceph.conf
+
+```
+[ceph@node1 ~]$ mkdir ced
+[ceph@node1 ~]$ cd ced
+[ceph@node1 ced]$ ceph-deploy new node1
+[ceph@node1 ced]$ cat ceph.conf
+[global]
+fsid = db2824e2-bfb7-4990-b907-8bc1f895bcd5
+mon_initial_members = node1
+mon_host = 10.0.0.1
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+osd pool default size = 1
+osd crush chooseleaf type = 0
+public network = 10.0.0.0/24
+```
+
+Install Ceph
+
+```
+[ceph@node1 ced]$ ceph-deploy install node1 --release luminous
+[ceph@node1 ced]$ ceph-deploy mon create-initial
+```
+
+Create OSD
+
+```
+[ceph@node1 ced]$ ceph-deploy osd create node1 --data /dev/your_osd_device
+```
+
+Install mgr
+
+```
+[ceph@node1 ced]$ ceph-deploy mgr create node1
+```
+
+Grant access
+
+```
+[ceph@node1 ced]$ sudo chown ceph:ceph -R /etc/ceph
+[ceph@node1 ced]$ cp ceph.client.admin.keyring /etc/ceph/
+[ceph@node1 ced]$ ceph -s
+cluster:
+  id:     0f66f8f9-a669-4aef-a222-7326d94512e8
+  health: HEALTH_OK
+services:
+  mon: 1 daemons, quorum node16
+  mgr: node1(active)
+  osd: 1 osds: 1 up, 1 in
+data:
+  pools:   0 pools, 0 pgs
+  objects: 0 objects, 0 bytes
+  usage:   1024 MB used, 930 GB / 931 GB avail
+  pgs:
+```
+
+Now Ceph is installed in your machine, than install CephFS
+
+Install MDS and create your CephFS
+
+```
+[ceph@node1 ced]$[ceph@node1 ced]$ceph-deploy mds create node1
+[ceph@node1 ced]$ceph osd pool create md 64 64
+[ceph@node1 ced]$ ceph osd pool create md 64 64
+pool 'md' created
+[ceph@node1 ced]$ ceph osd pool create d 64 64
+pool 'd' created
+[ceph@node1 ced]$ ceph fs new myceph md d
+new fs with metadata pool 1 and data pool 2
+[ceph@node1 ced]$ ceph -s
+cluster:
+  id:     0f66f8f9-a669-4aef-a222-7326d94512e8
+  health: HEALTH_OK
+services:
+  mon: 1 daemons, quorum node16
+  mgr: node1(active)
+  mds: myceph-1/1/1 up  {0=node16=up:active}
+  osd: 1 osds: 1 up, 1 in
+data:
+  pools:   2 pools, 128 pgs
+  objects: 0 objects, 0 bytes
+  usage:   1025 MB used, 930 GB / 931 GB avail
+  pgs:     128 active+clean
+```
 

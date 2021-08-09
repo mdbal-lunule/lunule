@@ -6,6 +6,11 @@ Lunule is implemented atop CephFS and easy to replace the existing CephFS's meta
 
 ```bash
 git clone git@github.com:shao-xy/Lunule.git
+sudo yum install -y wget
+wget ftp://ftp.pbone.net/mirror/archive.fedoraproject.org/epel/7.2020-04-20/x86_64/Packages/p/python34-Cython-0.28.5-1.el7.x86_64.rpm
+sudo yum install -y python34-Cython-0.28.5-1.el7.x86_64.rpm
+./install-deps.sh
+./do_cmake.sh
 cd Lunule/build
 make -j16
 sudo make install -j16
